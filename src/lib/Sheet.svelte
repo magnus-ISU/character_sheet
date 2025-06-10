@@ -5,7 +5,7 @@
 	import PersistentTextArea from './PersistentTextArea.svelte';
 	import GlobalTooltip from './GlobalTooltip.svelte';
 	import { parseCharacters } from './parseJsonToCharacters.svelte';
-	import { textareaInitialState } from '$lib/startingInputState.svelte';
+	import { textareaInitialState } from './startingInputState.svelte';
 	import { processAttack } from './dice.svelte';
 	import { LLMinstructions } from './llmInstructions.svelte';
 	import { groupby } from './util.svelte';
