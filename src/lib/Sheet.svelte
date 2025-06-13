@@ -10,14 +10,23 @@
 
 	// Initialize global state with initial character strings
 	let allCharactersText = $state(textareaInitialState.value);
+
+	// Update global state when text changes
 	$effect(() => {
-		const characterStrings = allCharactersText.split('---');
+		const characterStrings = allCharactersText
+			.split('---')
+			.map((s) => s.trim())
+			.filter((s) => s);
 		globalState.updateCharacterStrings(characterStrings);
 	});
 
 	// Initialize on mount
 	$effect(() => {
-		initializeGlobalState(textareaInitialState.value.split('---'));
+		const initialStrings = textareaInitialState.value
+			.split('---')
+			.map((s) => s.trim())
+			.filter((s) => s);
+		initializeGlobalState(initialStrings);
 	});
 
 	// Keyboard event handler for attack multipliers - now targets hovered character
@@ -55,7 +64,13 @@
 			searchStr = '"damage":';
 			damageIndex = unmodified.indexOf(searchStr);
 		}
+		if (damageIndex === -1) {
+			// Try space-separated format
+			searchStr = 'damage ';
+			damageIndex = unmodified.indexOf(searchStr);
+		}
 		if (damageIndex === -1) return;
+
 		// Search ahead for the first sequence of numeric digits, and get their start and end index
 		let afterDamage = unmodified.slice(damageIndex + searchStr.length);
 		let match = afterDamage.match(/-?\d+(\.\d+)?/);
@@ -67,13 +82,16 @@
 		const newStrings = [...globalState.characterStrings];
 		newStrings[character.index!] = modified;
 		globalState.updateCharacterStrings(newStrings);
-		allCharactersText = newStrings.join('---');
+		allCharactersText = newStrings.join('---\n');
 	}
 
 	// Handle target selection and attack execution
 	function executeAttack() {
 		if (globalState.selectedAttack === undefined) return;
-		for (const [_, targetData] of Object.entries(globalState.selectedAttackTargets)) {
+		for (const [_, targetData] of Object.entries(globalState.selectedAttackTargets) as [
+			string,
+			{ character: Character; timesAttacked: number }
+		][]) {
 			// Execute attack multiple times based on timesAttacked
 			let totalDamage = 0;
 			for (let i = 0; i < targetData.timesAttacked; i++) {
@@ -124,16 +142,16 @@
 			<!-- Two-column layout: Focused character on left, character list on right -->
 			<div class="focused-layout">
 				<div class="focused-column">
-					<FocusedCharacter {tooltip} {updateCharacterHealth} />
+					<FocusedCharacter {tooltip} {updateCharacterHealth} bind:allCharactersText />
 				</div>
 				<div class="list-column">
-					<CharacterList {tooltip} {updateCharacterHealth} bind:allCharactersText />
+					<CharacterList {tooltip} {updateCharacterHealth} />
 				</div>
 			</div>
 		{:else}
-			<!-- Full-width character list when no focus -->
+			<!-- Single-column layout: Show character editor when no focus -->
 			<div class="full-layout">
-				<CharacterList {tooltip} {updateCharacterHealth} bind:allCharactersText />
+				<FocusedCharacter {tooltip} {updateCharacterHealth} bind:allCharactersText />
 			</div>
 		{/if}
 	</div>

@@ -1,19 +1,15 @@
 <script lang="ts">
 	import { globalState } from './global_state.svelte';
 	import CharacterCard from './CharacterCard.svelte';
-	import PersistentTextArea from './PersistentTextArea.svelte';
 	import GlobalTooltip from './GlobalTooltip.svelte';
-	import { LLMinstructions } from './llmInstructions.svelte';
 	import { groupby } from './util.svelte';
 
 	let {
 		tooltip,
-		updateCharacterHealth,
-		allCharactersText = $bindable('')
+		updateCharacterHealth
 	}: {
 		tooltip: GlobalTooltip | undefined;
 		updateCharacterHealth: Function;
-		allCharactersText: string;
 	} = $props();
 
 	// Get character list and grouped characters
@@ -27,39 +23,10 @@
 		globalState.clearAttackSelection();
 		tooltip?.hide();
 	}
-
-	function handleAllCharactersTextUpdate(newValue: string) {
-		allCharactersText = newValue;
-		const characterStrings = newValue.split('---');
-		globalState.updateCharacterStrings(characterStrings);
-	}
 </script>
 
 <div class="character-list-container">
-	{#if globalState.focusedCharacterIndex === undefined}
-		<!-- Show full textarea when no character is focused -->
-		<div class="all-characters-textarea">
-			<div class="textarea-container">
-				<PersistentTextArea
-					bind:value={allCharactersText}
-					placeholder="Enter character JSON here..."
-				/>
-				<span
-					class="help-icon"
-					onmouseenter={() =>
-						tooltip?.show({
-							name: 'Help',
-							description:
-								'Click to copy llm instructions on how to create your character sheet. Take any format, copy paste it into claude.ai, and click this icon and copy paste the contents to her also.',
-							type: 'info',
-							chips: []
-						})}
-					onmouseleave={() => tooltip?.hide()}
-					onclick={() => navigator.clipboard.writeText(LLMinstructions)}>?</span
-				>
-			</div>
-		</div>
-	{:else}
+	{#if globalState.focusedCharacterIndex !== undefined}
 		<!-- Show character list when a character is focused -->
 		<div class="characters-grid">
 			<div class="list-header">
@@ -117,6 +84,12 @@
 				</div>
 			{/each}
 		</div>
+	{:else}
+		<!-- Show message when no character is focused -->
+		<div class="no-focus-message">
+			<h3>All Characters View</h3>
+			<p>Right-click any character to focus on it and see other characters here.</p>
+		</div>
 	{/if}
 </div>
 
@@ -124,37 +97,7 @@
 	.character-list-container {
 		flex: 1;
 		padding: 1rem;
-	}
-
-	.all-characters-textarea {
-		height: 100%;
-	}
-
-	.textarea-container {
-		position: relative;
-		height: 100%;
-	}
-
-	.help-icon {
-		position: absolute;
-		bottom: 10px;
-		right: 10px;
-		font-size: 20px;
-		cursor: pointer;
-		color: #fff;
-		background: #333;
-		border-radius: 50%;
-		width: 30px;
-		height: 30px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 0.7;
-		transition: opacity 0.3s ease;
-	}
-
-	.help-icon:hover {
-		opacity: 1;
+		overflow-y: auto;
 	}
 
 	.characters-grid {
@@ -253,5 +196,16 @@
 		transform: translateX(-50%);
 		border: 4px solid transparent;
 		border-top-color: rgba(76, 195, 247, 0.9);
+	}
+
+	.no-focus-message {
+		text-align: center;
+		color: rgba(255, 255, 255, 0.7);
+		padding: 2rem;
+	}
+
+	.no-focus-message h3 {
+		color: #4fc3f7;
+		margin-bottom: 1rem;
 	}
 </style>
