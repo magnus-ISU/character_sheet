@@ -10,23 +10,34 @@
 
 	// Initialize global state with initial character strings
 	let allCharactersText = $state(textareaInitialState.value);
-
-	// Update global state when text changes
-	$effect(() => {
-		const characterStrings = allCharactersText
-			.split('---')
-			.map((s) => s.trim())
-			.filter((s) => s);
-		globalState.updateCharacterStrings(characterStrings);
-	});
+	let isInitialized = $state(false);
 
 	// Initialize on mount
 	$effect(() => {
-		const initialStrings = textareaInitialState.value
-			.split('---')
-			.map((s) => s.trim())
-			.filter((s) => s);
-		initializeGlobalState(initialStrings);
+		if (!isInitialized) {
+			const initialStrings = textareaInitialState.value
+				.split('---')
+				.map((s) => s.trim())
+				.filter((s) => s);
+			initializeGlobalState(initialStrings, textareaInitialState.value);
+			isInitialized = true;
+
+			// If allCharactersText is empty (from persistence), use the initial value
+			if (!allCharactersText.trim()) {
+				allCharactersText = textareaInitialState.value;
+			}
+		}
+	});
+
+	// Update global state when text changes (but only after initialization)
+	$effect(() => {
+		if (isInitialized && allCharactersText.trim()) {
+			const characterStrings = allCharactersText
+				.split('---')
+				.map((s) => s.trim())
+				.filter((s) => s);
+			globalState.updateCharacterStrings(characterStrings);
+		}
 	});
 
 	// Keyboard event handler for attack multipliers - now targets hovered character

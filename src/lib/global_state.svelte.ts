@@ -32,8 +32,13 @@ export const globalState = $state({
 
 	// Methods
 	updateCharacterStrings(newStrings: string[]) {
-		this.characterStrings = newStrings;
-		this.characters = parseCharacters(newStrings);
+		// Filter out empty strings and ensure we have valid character data
+		const validStrings = newStrings.filter((s) => s.trim());
+
+		this.characterStrings = validStrings;
+		this.characters = parseCharacters(validStrings);
+
+		$inspect(this.characters);
 
 		// Validate focused character index
 		if (
@@ -70,7 +75,18 @@ export const globalState = $state({
 	}
 });
 
-// Initial state setup
-export function initializeGlobalState(initialCharacterStrings: string[]) {
-	globalState.updateCharacterStrings(initialCharacterStrings);
+// Initial state setup with fallback to default when empty
+export function initializeGlobalState(initialCharacterStrings: string[], defaultValue?: string) {
+	// If no valid character strings provided and we have a default, use the default
+	const validStrings = initialCharacterStrings.filter((s) => s.trim());
+
+	if (validStrings.length === 0 && defaultValue) {
+		const defaultStrings = defaultValue
+			.split('---')
+			.map((s) => s.trim())
+			.filter((s) => s);
+		globalState.updateCharacterStrings(defaultStrings);
+	} else {
+		globalState.updateCharacterStrings(validStrings);
+	}
 }
