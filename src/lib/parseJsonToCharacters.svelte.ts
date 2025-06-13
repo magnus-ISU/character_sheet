@@ -55,8 +55,8 @@ function processCharacter(characterDefinition: string, index: number): Character
 		let valStr = value!.toString();
 
 		if (isNumberValue(value)) {
-			// Handle numeric stats
-			createNumberStat(character, normalizedKey, valStr);
+			// Handle numeric stats - create enhanced NumberStat
+			createEnhancedNumberStat(character, normalizedKey, valStr);
 		} else if (typeof value === 'object' && value !== null) {
 			parseAndAddFeature(character, key, value);
 		}
@@ -66,7 +66,8 @@ function processCharacter(characterDefinition: string, index: number): Character
 	if (!character.numbers.hasOwnProperty('max_hp')) return undefined;
 	if (!character.numbers.hasOwnProperty('damage')) return undefined;
 
-	// Process stat modifiers and calculate final values
+	// Auto-initialize stat properties and calculate final values
+	initializeStatProperties(character);
 	processStatModifiers(character);
 	calculateFinalValues(character);
 
@@ -97,41 +98,97 @@ function isNumberValue(value: any): boolean {
 	);
 }
 
-// Create a NumberStat object
-function createNumberStat(
+// Create an enhanced NumberStat object with subfields
+function createEnhancedNumberStat(
 	character: Character,
 	originalName: string,
 	baseValue: string
 ): undefined {
 	let numValue = Number(baseValue);
 	const { parent, name } = parseSlashName(originalName);
+
+	// Handle subfield definitions (e.g., "str.attack 5")
+	const subfieldMatch = name.match(/^(\w+)\.(\w+)$/);
+	if (subfieldMatch) {
+		const [, statName, subfieldName] = subfieldMatch;
+
+		// Ensure parent stat exists
+		if (!character.numbers[statName]) {
+			createEnhancedNumberStat(character, statName, '0');
+		}
+
+		// Set the subfield
+		const stat = character.numbers[statName];
+		if (subfieldName === 'attack') {
+			stat.attack = numValue;
+		} else if (subfieldName === 'defense') {
+			stat.defense = numValue;
+		} else if (subfieldName === 'roll') {
+			stat.roll = baseValue; // Keep as string for dice expressions
+		} else if (subfieldName === 'canCrit') {
+			stat.canCrit = Boolean(numValue);
+		} else if (subfieldName === 'renderSubfields') {
+			stat.renderSubfields = Boolean(numValue);
+		}
+		return;
+	}
+
+	// Handle object-style stat definitions (e.g., "ac {baseValue: 20, canCrit: true}")
+	if (typeof baseValue === 'object') {
+		const statObj = baseValue as any;
+		numValue = Number(statObj.baseValue || statObj.value || 0);
+
+		const stat: NumberStat = {
+			name: name,
+			parentName: parent,
+			baseValue: String(numValue),
+			modifiers: [],
+			value: numValue,
+			attack: numValue,
+			defense: numValue,
+			roll: 'd20',
+			canCrit: name === 'ac' ? true : statObj.canCrit || false,
+			renderSubfields: statObj.renderSubfields !== false
+		};
+
+		// Override with specific values if provided
+		if (statObj.attack !== undefined) stat.attack = Number(statObj.attack);
+		if (statObj.defense !== undefined) stat.defense = Number(statObj.defense);
+		if (statObj.roll !== undefined) stat.roll = String(statObj.roll);
+		if (statObj.canCrit !== undefined) stat.canCrit = Boolean(statObj.canCrit);
+
+		character.numbers[name] = stat;
+		return;
+	}
+
+	// Standard stat creation
 	character.numbers[name] = {
 		name: name,
 		parentName: parent,
 		baseValue: baseValue,
 		modifiers: [],
-		value: numValue
+		value: numValue,
+		attack: numValue, // Auto-initialized to stat value
+		defense: numValue, // Auto-initialized to stat value
+		roll: 'd20', // Default roll
+		canCrit: name === 'ac', // AC can crit by default for 5e
+		renderSubfields: true
 	};
 }
 
-// A feature contains a name, but all other values are optional.
-// A feature's description is its highest priority auto-key, but the description always comes last
-// Then, in standard order [roll, hit] are populated also
-// You can populate {miss: , hit_effect: , or miss_effect: } values also
-// roll: controls a die expression to be rolled, but if it starts with '+' it is treated as a 5e d20 attack that can critical hit
-// The feature is an attack if it rolls against a target, which is indicated by putting " vs TARGET" at the end of roll:
-// Right clicking or not having a target causes roll:, hit:, and miss: to all be rolled if able
-// miss: can be "half" to always do exactly half of what a hit does
-// Finally, stats:[ ] list controls stat changes the feature causes, such as adding a point of strength
-//
-// Examples:
-// [group / ] feature name: { roll, hit, miss: , stats:[ stat += expression ], description comes last}
-// items / Longsword +1: { d20 + 1 + str + pb vs ac , d10 slashing , "Sap - Your hit enemy has disadvantage on their next attack this round." }
-// spells / Fireball: { d20 + int + pb - 14 vs dex_save , 8d6 fire , miss: half , "Range: 150 feet." }
-// Firebolt: { +pb+int vs ac , cantrip_dice d10 fire , "You hurl a mote of flame up to 120 feet at your foe."},
-// items / Chainmail: { stats: [ac += 6 - dex] , "The wearer has disadvantage on Dexterity (Stealth) checks." }
-// items / Healing Potion: { 0 vs 0, -2d4-2 , "This small potion heals the most mortal of wounds, but little else?" }
-// Trance: { "As an elf, you need rest only 4 hours in quiet meditation to gain the benefits of long rest." }
+// Initialize stat properties after all stats are created
+function initializeStatProperties(character: Character): void {
+	for (const [name, stat] of Object.entries(character.numbers)) {
+		// Auto-initialize attack and defense to stat value if not explicitly set
+		if (stat.attack === undefined) stat.attack = stat.value;
+		if (stat.defense === undefined) stat.defense = stat.value;
+		if (stat.roll === undefined) stat.roll = 'd20';
+		if (stat.canCrit === undefined) stat.canCrit = name === 'ac';
+		if (stat.renderSubfields === undefined) stat.renderSubfields = true;
+	}
+}
+
+// Enhanced feature parsing with attack info extraction
 function parseAndAddFeature(character: Character, originalName: string, feature: any): undefined {
 	const { parent, name } = parseSlashName(originalName);
 	// iterate up to the last numeric value, which is description
@@ -157,6 +214,7 @@ function parseAndAddFeature(character: Character, originalName: string, feature:
 	}
 
 	let [rollFormula, against] = extractAgainst(feature.roll || '');
+
 	let f: Feature = {
 		name: name,
 		description: feature.description || '',
@@ -170,8 +228,61 @@ function parseAndAddFeature(character: Character, originalName: string, feature:
 		chips: Array.isArray(feature.chips) ? feature.chips : []
 	};
 
+	// Parse attack information if this is an attack
+	if (rollFormula && against) {
+		f.attackInfo = parseAttackInfo(
+			rollFormula,
+			against,
+			f.hit,
+			f.miss,
+			f.hit_effect,
+			f.miss_effect
+		);
+	}
+
 	character.features[parent] || (character.features[parent] = []);
 	character.features[parent].push(f);
+}
+
+// Parse attack information into structured AttackInfo
+function parseAttackInfo(
+	roll: string,
+	rollAgainst: string,
+	hit: string,
+	miss: string,
+	hitEffect: string,
+	missEffect: string
+): AttackInfo {
+	// Handle shorthand like "int vs dex" -> "int.attack vs dex.defense"
+	let processedRoll = roll;
+	let processedRollAgainst = rollAgainst;
+
+	// If roll doesn't contain operators, assume it's a stat name and add .attack
+	if (!/[+\-*/()]/.test(roll) && !/\./.test(roll)) {
+		processedRoll = `${roll}.attack`;
+	}
+
+	// If rollAgainst doesn't contain operators, assume it's a stat name and add .defense
+	if (!/[+\-*/()]/.test(rollAgainst) && !/\./.test(rollAgainst)) {
+		processedRollAgainst = `${rollAgainst}.defense`;
+	}
+
+	// Parse roll into main roll and modifier
+	// The main roll uses the stat's default roll, modifier is everything else
+	const rollParts = processedRoll.split(/([+\-])/);
+	const mainRoll = rollParts[0].trim();
+	const modifier = rollParts.length > 1 ? rollParts.slice(1).join('').trim() : '';
+
+	return {
+		roll: processedRoll,
+		rollAgainst: processedRollAgainst,
+		mainRoll: mainRoll,
+		modifier: modifier,
+		hit: hit,
+		miss: miss,
+		hitEffect: hitEffect,
+		missEffect: missEffect
+	};
 }
 
 function addAttackChips(character: Character) {
@@ -252,7 +363,7 @@ function applyStatModifier(character: Character, source: Feature, modifier: stri
 	let { stat, prefix } = splitModifier(modifier);
 	// Ensure the stat exists
 	if (!character.numbers[stat]) {
-		createNumberStat(character, prefix, '0');
+		createEnhancedNumberStat(character, prefix, '0');
 	}
 
 	// Add the modifier
@@ -276,6 +387,9 @@ function calculateFinalValues(character: Character): void {
 
 			if (newValue !== oldValue && !isNaN(newValue)) {
 				numberStat.value = newValue;
+				// Update attack and defense if they were auto-initialized
+				if (numberStat.attack === oldValue) numberStat.attack = newValue;
+				if (numberStat.defense === oldValue) numberStat.defense = newValue;
 				changed = true;
 			}
 		}

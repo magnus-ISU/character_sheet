@@ -105,7 +105,7 @@ class UnquotedJSONParser {
 			let result = '';
 			while (this.pos < this.input.length) {
 				const char = this.peek();
-				if (char === ',' || char === '}' || char === ']' || char === ':') {
+				if (char === ',' || char === '}' || char === ']' || char === ':' || char === '{') {
 					break;
 				}
 				result += this.advance();
@@ -173,6 +173,87 @@ class UnquotedJSONParser {
 		}
 	}
 
+	// Enhanced method to parse space-separated key-value pairs and inferred colons
+	private parseKeyValueOrSpaceSeparated(): { key: string; value: any; hasDescription?: string } {
+		const keyLineNumber = this.getCurrentLineNumber();
+
+		// Check if we're looking at an object without explicit colon
+		const savePos = this.pos;
+		let potentialKey = this.parseString();
+		this.skipWhitespace();
+
+		// Check for inferred object (key followed by {)
+		if (this.peek() === '{') {
+			// This is "key {object}" format - infer colon
+			this.keyLineNumbers[potentialKey] = keyLineNumber;
+			const objValue = this.parseValue(); // Parse the object
+
+			// Check for description after the object
+			this.skipWhitespace();
+			if (this.pos < this.input.length && this.peek() !== ',' && this.peek() !== '}') {
+				// Look ahead to see if there's a description before the next delimiter
+				const descStart = this.pos;
+				let description = '';
+				while (this.pos < this.input.length) {
+					const char = this.peek();
+					if (char === ',' || char === '}') {
+						break;
+					}
+					description += this.advance();
+				}
+				description = description.trim();
+
+				if (description && typeof objValue === 'object' && objValue !== null) {
+					objValue.description = description;
+				}
+			}
+
+			return { key: potentialKey, value: objValue };
+		}
+
+		// Check for explicit colon
+		if (this.peek() === ':') {
+			this.keyLineNumbers[potentialKey] = keyLineNumber;
+			this.advance(); // consume ':'
+			this.skipWhitespace();
+			const value = this.parseValue();
+			return { key: potentialKey, value };
+		}
+
+		// No colon found - check if this is a space-separated key-value pair
+		this.pos = savePos; // Reset position
+
+		// Parse the entire token until delimiter
+		let fullToken = '';
+		while (this.pos < this.input.length) {
+			const char = this.peek();
+			if (char === ',' || char === '}' || char === ']') {
+				break;
+			}
+			fullToken += this.advance();
+		}
+		fullToken = fullToken.trim();
+
+		// Split by spaces to get key and value
+		const spaceParts = fullToken.split(/\s+/);
+		if (spaceParts.length >= 2) {
+			const key = spaceParts[0];
+			const value = spaceParts.slice(1).join(' ');
+			this.keyLineNumbers[key] = keyLineNumber;
+
+			// Try to parse the value as a number if possible
+			const numValue = parseFloat(value);
+			if (!isNaN(numValue) && numValue.toString() === value) {
+				return { key, value: numValue };
+			}
+			return { key, value };
+		}
+
+		// Fallback: treat as key with empty value
+		this.keyLineNumbers[potentialKey] = keyLineNumber;
+		return { key: potentialKey, value: '' };
+	}
+
 	private parseObject(): any {
 		const obj: any = {};
 		this.advance(); // consume '{'
@@ -189,114 +270,8 @@ class UnquotedJSONParser {
 		while (this.pos < this.input.length) {
 			this.skipWhitespace();
 
-			// Store the line number before parsing the key
-			const keyLineNumber = this.getCurrentLineNumber();
-
-			// Check if we have a key-value pair or just a value
-			const savePos = this.pos;
-			let hasColon = false;
-
-			// More robust lookahead to find colon
-			// We need to be more careful about nested structures and quoted content
-			let tempPos = this.pos;
-			let parenDepth = 0;
-			let braceDepth = 0;
-			let bracketDepth = 0;
-			let inQuotes = false;
-			let foundColon = false;
-			let foundTerminator = false;
-
-			// First, let's see what kind of token we're starting with
-			this.skipWhitespace();
-			const isStartingWithQuote = this.peek() === '"';
-
-			// If we start with a quote, we need to be extra careful
-			// Parse the complete quoted string first to see what comes after
-			if (isStartingWithQuote) {
-				let quotedStringEnd = this.pos + 1; // skip opening quote
-				let escapeNext = false;
-
-				while (quotedStringEnd < this.input.length) {
-					const char = this.input[quotedStringEnd];
-					if (escapeNext) {
-						escapeNext = false;
-					} else if (char === '\\') {
-						escapeNext = true;
-					} else if (char === '"') {
-						quotedStringEnd++; // include closing quote
-						break;
-					}
-					quotedStringEnd++;
-				}
-
-				// Now check what comes after the quoted string
-				let afterQuotePos = quotedStringEnd;
-				while (afterQuotePos < this.input.length && /\s/.test(this.input[afterQuotePos])) {
-					afterQuotePos++;
-				}
-
-				// If the next non-whitespace character is a colon, it's a key
-				if (afterQuotePos < this.input.length && this.input[afterQuotePos] === ':') {
-					hasColon = true;
-				}
-			} else {
-				// For unquoted tokens, use the original lookahead logic
-				tempPos = this.pos;
-				const lookaheadLimit = 1000;
-
-				while (tempPos < this.input.length && tempPos - this.pos < lookaheadLimit) {
-					const char = this.input[tempPos];
-
-					if (char === '"' && (tempPos === 0 || this.input[tempPos - 1] !== '\\')) {
-						inQuotes = !inQuotes;
-					} else if (!inQuotes) {
-						if (char === '(') parenDepth++;
-						else if (char === ')') parenDepth--;
-						else if (char === '{') braceDepth++;
-						else if (char === '}') braceDepth--;
-						else if (char === '[') bracketDepth++;
-						else if (char === ']') bracketDepth--;
-						else if (char === ':' && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
-							hasColon = true;
-							break;
-						} else if (char === ',' && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
-							break;
-						} else if (char === '}' && parenDepth === 0 && braceDepth === 0 && bracketDepth === 0) {
-							break;
-						}
-					}
-					tempPos++;
-				}
-			}
-
-			let key: string;
-			let value: any;
-
-			if (hasColon) {
-				// Parse as key-value pair
-				key = this.parseString();
-				this.keyLineNumbers[key] = keyLineNumber;
-				this.skipWhitespace();
-
-				if (this.peek() !== ':') {
-					let pos = this.pos;
-					let input = this.input;
-					throw new Error(
-						`Expected ':' after key "${key}" at position ${pos}. ${input.substring(pos - 10, pos)} ... ${input.substring(pos, pos + 20)}`
-					);
-				}
-				this.advance();
-				this.skipWhitespace();
-				value = this.parseValue();
-			} else {
-				// Parse as value only, assign numeric key
-				key = keyIndex.toString();
-				this.keyLineNumbers[key] = keyLineNumber;
-				keyIndex++;
-				value = this.parseValue();
-			}
-
-			obj[key] = value;
+			const result = this.parseKeyValueOrSpaceSeparated();
+			obj[result.key] = result.value;
 
 			this.skipWhitespace();
 

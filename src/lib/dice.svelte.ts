@@ -1,12 +1,21 @@
 // This file allows characters to roll dice like `d20 + 4 + pb + (str + dex)/2
-export { rollDiceExpression, processAttack, prettyStringProcessDiceExpression };
+export { rollDiceExpression, processAttack, prettyStringProcessDiceExpression, rollStatRoll };
 
+// Roll a stat's default roll (e.g., d20, 2d20kh1 for advantage, 2d6 for dungeon world)
+function rollStatRoll(character: Character, statName: string): number {
+	const stat = character.numbers[statName];
+	if (!stat) return 0;
+
+	return rollDiceExpression(character, stat.roll);
+}
+
+// Enhanced roll dice expression that handles stat subfields
 function rollDiceExpression(
 	character: Character,
 	expression: string,
 	args?: { noDice?: boolean }
 ): number {
-	// Replace character stats with their floored values
+	// Replace character stats with their floored values, including subfields
 	let processedExpression = expression;
 
 	// Handle variable dice (like cantrip_dice d8) BEFORE replacing individual stats
@@ -16,19 +25,29 @@ function rollDiceExpression(
 		const size = parseInt(dieSize);
 		let total = 0;
 		for (let i = 0; i < multiplier; i++) {
-			total += Math.floor(Math.random() * size) + 1;
+			total += args?.noDice ? 0 : Math.floor(Math.random() * size) + 1;
 		}
 		return total.toString();
 	});
 
-	// Now replace individual character stats with their floored values
-	for (const [key, value] of Object.entries(character.numbers)) {
-		const flooredValue = Math.floor(value.value);
-		// Use word boundaries to avoid partial matches
+	// Replace stat references including subfields (e.g., str.attack, dex.defense)
+	for (const [key, stat] of Object.entries(character.numbers)) {
+		// Handle subfield references
+		const attackRef = new RegExp(`\\b${key}\\.attack\\b`, 'g');
+		const defenseRef = new RegExp(`\\b${key}\\.defense\\b`, 'g');
+
 		processedExpression = processedExpression.replace(
-			new RegExp(`\\b${key}\\b`, 'g'),
-			flooredValue.toString()
+			attackRef,
+			Math.floor(stat.attack).toString()
 		);
+		processedExpression = processedExpression.replace(
+			defenseRef,
+			Math.floor(stat.defense).toString()
+		);
+
+		// Handle base stat references
+		const baseRef = new RegExp(`\\b${key}\\b`, 'g');
+		processedExpression = processedExpression.replace(baseRef, Math.floor(stat.value).toString());
 	}
 
 	// Handle dice notation (XdY, XdYkh/klZ, etc.)
@@ -111,13 +130,24 @@ function rollCriticalDamage(character: Character, damageExpression: string): num
 		return diceTotal.toString();
 	});
 
-	// Replace character stats with their floored values
-	for (const [key, value] of Object.entries(character.numbers)) {
-		const flooredValue = Math.floor(value.value);
+	// Replace character stats with their floored values, including subfields
+	for (const [key, stat] of Object.entries(character.numbers)) {
+		// Handle subfield references first
+		const attackRef = new RegExp(`\\b${key}\\.attack\\b`, 'g');
+		const defenseRef = new RegExp(`\\b${key}\\.defense\\b`, 'g');
+
 		processedExpression = processedExpression.replace(
-			new RegExp(`\\b${key}\\b`, 'g'),
-			flooredValue.toString()
+			attackRef,
+			Math.floor(stat.attack).toString()
 		);
+		processedExpression = processedExpression.replace(
+			defenseRef,
+			Math.floor(stat.defense).toString()
+		);
+
+		// Handle base stat references
+		const baseRef = new RegExp(`\\b${key}\\b`, 'g');
+		processedExpression = processedExpression.replace(baseRef, Math.floor(stat.value).toString());
 	}
 
 	// Track bonuses separately from dice
@@ -203,7 +233,10 @@ function parseDamageExpression(expression: string, attacker: Character): AttackR
 			operators.includes(part) ||
 			!isNaN(Number(part)) ||
 			/\d*d\d+/.test(part) ||
-			knownVars.includes(part)
+			knownVars.includes(part) ||
+			knownVars.some(
+				(varName) => part.includes(`${varName}.attack`) || part.includes(`${varName}.defense`)
+			)
 		) {
 			break;
 		}
@@ -231,73 +264,128 @@ function parseDamageExpression(expression: string, attacker: Character): AttackR
 	return { damageDealt: damage, damageType };
 }
 
+// Enhanced attack processing with new stat system
 function processAttack(
 	attacker: Character,
 	target: Character | undefined,
 	attack: Feature,
 	logMessage: Function
 ): AttackResult {
-	// Check if this is a 5e attack (starts with +)
-	const is5eAttack = attack.roll.startsWith('+');
-	let toHitRoll = 0;
-	let d20Result = 0;
-	let modifierValue = 0;
-
-	if (is5eAttack) {
-		// Roll d20 separately for 5e attacks
-		d20Result = Math.floor(Math.random() * 20) + 1;
-		// Remove the + and just pass the modifiers to the dice roller
-		const modifiers = attack.roll.substring(1);
-		modifierValue = rollDiceExpression(attacker, modifiers);
-		console.log(attacker, modifiers, modifierValue);
-		toHitRoll = d20Result + modifierValue;
-	} else {
-		// Non-5e systems: roll the full expression
-		toHitRoll = rollDiceExpression(attacker, attack.roll);
-	}
-
-	// Determine if this is a critical hit or miss (only for 5e attacks)
-	let logType = 'roll';
+	let rollResult = 0;
+	let targetValue: number | undefined;
 	let isCriticalHit = false;
 	let isCriticalMiss = false;
 	let isHit = false;
+	let logType: LogType = 'roll';
 
-	let targetValue: undefined | number;
-	if (target && attack.roll_against !== undefined) {
-		targetValue = isNaN(Number(attack.roll_against))
-			? target.numbers[attack.roll_against]?.value || 0
-			: Number(attack.roll_against);
-	}
+	// Enhanced attack processing using attackInfo if available
+	if (attack.attackInfo) {
+		const attackInfo = attack.attackInfo;
 
-	if (is5eAttack) {
-		if (d20Result === 20) {
-			isCriticalHit = true;
-			isHit = true; // Criticals always hit
-		} else if (d20Result === 1) {
-			isCriticalMiss = true;
-			isHit = false; // Critical misses always miss
-		} else {
-			// Normal 5e hit determination
-			if (target && targetValue) {
-				isHit = toHitRoll >= targetValue;
+		// Determine target value with subfield support
+		if (target && attackInfo.rollAgainst) {
+			// Handle subfield references like "dex.defense"
+			if (attackInfo.rollAgainst.includes('.')) {
+				const [statName, subfield] = attackInfo.rollAgainst.split('.');
+				const stat = target.numbers[statName];
+				if (stat && subfield === 'defense') {
+					targetValue = stat.defense;
+				} else if (stat && subfield === 'attack') {
+					targetValue = stat.attack;
+				} else {
+					targetValue = stat?.value || 0;
+				}
 			} else {
-				isHit = true; // No target or targetValue specified, assume hit
+				// Simple stat reference
+				targetValue = isNaN(Number(attackInfo.rollAgainst))
+					? target.numbers[attackInfo.rollAgainst]?.value || 0
+					: Number(attackInfo.rollAgainst);
 			}
 		}
-	} else {
-		// Non-5e systems: compare roll result to target
-		if (target && targetValue) {
-			isHit = toHitRoll >= targetValue;
+
+		// Roll using the stat's default roll plus modifiers
+		if (attackInfo.mainRoll.includes('.')) {
+			const [statName, subfield] = attackInfo.mainRoll.split('.');
+			const stat = attacker.numbers[statName];
+			if (stat) {
+				// Use the stat's default roll
+				const mainRollResult = rollStatRoll(attacker, statName);
+				const modifierValue = attackInfo.modifier
+					? rollDiceExpression(attacker, attackInfo.modifier)
+					: 0;
+				rollResult = mainRollResult + modifierValue;
+
+				// Check for crits if this is a d20 roll
+				if (stat.roll === 'd20' && mainRollResult === 20) {
+					isCriticalHit = true;
+					isHit = true;
+				} else if (stat.roll === 'd20' && mainRollResult === 1) {
+					isCriticalMiss = true;
+					isHit = false;
+				}
+			}
 		} else {
-			isHit = true; // No target or targetValue specified, assume hit
+			// Fallback to full expression
+			rollResult = rollDiceExpression(attacker, attackInfo.roll);
 		}
+	} else {
+		// Legacy attack processing
+		// Check if this is a 5e attack (starts with +)
+		const is5eAttack = attack.roll.startsWith('+');
+		let d20Result = 0;
+		let modifierValue = 0;
+
+		if (is5eAttack) {
+			// Roll d20 separately for 5e attacks
+			d20Result = Math.floor(Math.random() * 20) + 1;
+			// Remove the + and just pass the modifiers to the dice roller
+			const modifiers = attack.roll.substring(1);
+			modifierValue = rollDiceExpression(attacker, modifiers);
+			rollResult = d20Result + modifierValue;
+
+			if (d20Result === 20) {
+				isCriticalHit = true;
+				isHit = true;
+			} else if (d20Result === 1) {
+				isCriticalMiss = true;
+				isHit = false;
+			}
+		} else {
+			// Non-5e systems: roll the full expression
+			rollResult = rollDiceExpression(attacker, attack.roll);
+		}
+
+		// Determine target value
+		if (target && attack.roll_against !== undefined) {
+			targetValue = isNaN(Number(attack.roll_against))
+				? target.numbers[attack.roll_against]?.value || 0
+				: Number(attack.roll_against);
+		}
+	}
+
+	// Determine hit/miss if not already set by crits
+	if (!isCriticalHit && !isCriticalMiss) {
+		if (target && targetValue !== undefined) {
+			isHit = rollResult >= targetValue;
+		} else {
+			isHit = true; // No target specified, assume hit
+		}
+	}
+
+	// Check if target can crit (for critical hit determination)
+	let canCrit = false;
+	if (target && attack.roll_against) {
+		const targetStat = attack.roll_against.includes('.')
+			? target.numbers[attack.roll_against.split('.')[0]]
+			: target.numbers[attack.roll_against];
+		canCrit = targetStat?.canCrit || false;
 	}
 
 	// Parse damage and damage types
 	let hitDamageResult = { damageDealt: 0, damageType: 'damage' };
 	let missDamageResult = { damageDealt: 0, damageType: 'damage' };
 
-	if (isCriticalHit) {
+	if (isCriticalHit && canCrit) {
 		// For critical hits, we need to handle damage type parsing specially
 		const parsed = parseDamageExpression(attack.hit, attacker);
 		hitDamageResult.damageType = parsed.damageType;
@@ -306,6 +394,7 @@ function processAttack(
 			attacker,
 			attack.hit.replace(parsed.damageType, '').trim()
 		);
+		logType = 'critical-hit';
 	} else {
 		// Normal hit
 		hitDamageResult = parseDamageExpression(attack.hit, attacker);
@@ -320,13 +409,13 @@ function processAttack(
 		missDamageResult = parseDamageExpression(attack.miss, attacker);
 	}
 
+	// Set log type
+	if (isCriticalMiss) logType = 'critical-miss';
+	else if (!isHit && attack.roll_against) logType = 'miss';
+
 	// Build the message
 	let message = `${attacker.name} ${attack.name.toLowerCase()}${attack.name[attack.name.length - 1] === 's' ? 'es' : 's'}${target !== undefined ? ` ${target.name}` : ''}:`;
-	if (is5eAttack) {
-		message += ` ${d20Result} ${modifierValue >= 0 ? '+' : '-'} ${Math.abs(modifierValue)}`;
-	} else {
-		message += ` ${toHitRoll}`;
-	}
+	message += ` ${rollResult}`;
 	let messageEnd = attack.roll;
 
 	if (attack.roll_against) {
@@ -337,7 +426,6 @@ function processAttack(
 	// Add hit/miss result with damage type
 	if (attack.roll_against) {
 		if (isCriticalHit) {
-			logType = 'critical-hit';
 			message += ` | ${hitDamageResult.damageDealt} ${hitDamageResult.damageType}`;
 			messageEnd += ` | CRITICAL 2x ${attack.hit}`;
 		} else if (isHit) {
@@ -346,7 +434,6 @@ function processAttack(
 		} else {
 			message += ` | ${missDamageResult.damageDealt} ${missDamageResult.damageType}`;
 			messageEnd += ` | ${attack.miss}`;
-			logType = isCriticalMiss ? 'critical-miss' : 'miss';
 		}
 	} else {
 		// No target: show both hit and miss damage
@@ -363,16 +450,20 @@ function processAttack(
 	}
 }
 
+// Enhanced pretty string processing with subfield support
 function prettyStringProcessDiceExpression(character: Character, expression: string): string {
 	let prefix = '';
 	if (expression[0] === '-') {
 		prefix = '-';
 		expression = expression.substring(1);
 	}
+
 	// Create a map of stat names to their values for easier lookup
 	const statValues: Record<string, number> = {};
 	for (const [key, stat] of Object.entries(character.numbers)) {
 		statValues[key] = Math.floor(stat.value);
+		statValues[`${key}.attack`] = Math.floor(stat.attack);
+		statValues[`${key}.defense`] = Math.floor(stat.defense);
 		// Also add the stat name if it's different from the key
 		if (stat.name !== key) {
 			statValues[stat.name.toLowerCase()] = Math.floor(stat.value);
@@ -397,7 +488,7 @@ function prettyStringProcessDiceExpression(character: Character, expression: str
 		}
 	}
 
-	// Step 2: Replace variables with their values
+	// Step 2: Replace variables with their values (including subfields)
 	const replacedTokens = tokens.map((token) => {
 		const lowerToken = token.toLowerCase();
 		if (statValues.hasOwnProperty(lowerToken)) {
