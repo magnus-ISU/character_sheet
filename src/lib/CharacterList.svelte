@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { globalState } from './global_state.svelte';
-	import CharacterCard from './CharacterCard.svelte';
+	import CharacterListCard from './CharacterListCard.svelte';
 	import GlobalTooltip from './GlobalTooltip.svelte';
 	import { groupby } from './util.svelte';
 
@@ -26,71 +26,33 @@
 </script>
 
 <div class="character-list-container">
-	{#if globalState.focusedCharacterIndex !== undefined}
-		<!-- Show character list when a character is focused -->
-		<div class="characters-grid">
-			<div class="list-header">
+	<!-- Always show character list -->
+	<div class="characters-grid">
+		<div class="list-header">
+			{#if globalState.focusedCharacterIndex !== undefined}
 				<h3>Other Characters</h3>
 				<button class="show-all-button" onclick={() => globalState.setFocusedCharacter(undefined)}>
 					Show All Characters
 				</button>
+			{:else}
+				<h3>All Characters</h3>
+				<div class="instruction-text">Right-click any character to focus on it</div>
+			{/if}
+		</div>
+
+		{#each groupedCharacters as group}
+			<div class="template-row">
+				{#each group as character (character.index)}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<div class="character-wrapper" oncontextmenu={(e) => onCharacterRightClick(character, e)}>
+						<CharacterListCard {character} {updateCharacterHealth} />
+						<div class="right-click-hint">Right-click to focus</div>
+					</div>
+				{/each}
 			</div>
-
-			{#each groupedCharacters as group}
-				<div class="template-row">
-					{#each group as character (character.index)}
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<div
-							class="character-wrapper"
-							oncontextmenu={(e) => onCharacterRightClick(character, e)}
-						>
-							<CharacterCard
-								{character}
-								{tooltip}
-								logMessage={globalState.logMessage.bind(globalState)}
-								{updateCharacterHealth}
-								onAttackTargetSelected={(target: Character, shiftKey: boolean) => {
-									if (globalState.selectedAttack === undefined) return;
-
-									if (shiftKey) {
-										if (globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
-											delete globalState.selectedAttackTargets[target.index];
-										} else {
-											globalState.selectedAttackTargets[target.index] = {
-												character: target,
-												timesAttacked: 1
-											};
-										}
-									} else {
-										if (!globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
-											globalState.selectedAttackTargets[target.index] = {
-												character: target,
-												timesAttacked: 1
-											};
-										}
-										// Execute attack - handled by parent
-									}
-								}}
-								onCharacterHover={(character: Character | undefined) => {
-									globalState.hoveredCharacter = character;
-								}}
-								bind:selectedAttack={globalState.selectedAttack}
-								bind:selectedAttackTargets={globalState.selectedAttackTargets}
-							/>
-							<div class="right-click-hint">Right-click to focus</div>
-						</div>
-					{/each}
-				</div>
-			{/each}
-		</div>
-	{:else}
-		<!-- Show message when no character is focused -->
-		<div class="no-focus-message">
-			<h3>All Characters View</h3>
-			<p>Right-click any character to focus on it and see other characters here.</p>
-		</div>
-	{/if}
+		{/each}
+	</div>
 </div>
 
 <style>
@@ -146,6 +108,12 @@
 		);
 		transform: translateY(-1px);
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	}
+
+	.instruction-text {
+		color: rgba(255, 255, 255, 0.6);
+		font-size: 14px;
+		font-style: italic;
 	}
 
 	.template-row {

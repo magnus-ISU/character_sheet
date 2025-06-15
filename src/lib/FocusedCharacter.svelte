@@ -8,11 +8,13 @@
 	let {
 		tooltip,
 		updateCharacterHealth,
-		allCharactersText = $bindable('')
+		allCharactersText = $bindable(''),
+		updateGlobalState
 	}: {
 		tooltip: GlobalTooltip | undefined;
 		updateCharacterHealth: Function;
 		allCharactersText: string;
+		updateGlobalState?: (text: string) => void;
 	} = $props();
 
 	let textareaRef: HTMLTextAreaElement | undefined = $state();
@@ -35,6 +37,7 @@
 
 	function handleAllCharactersTextUpdate(newValue: string) {
 		allCharactersText = newValue;
+		updateGlobalState?.(newValue);
 	}
 
 	function onRightClick(e: MouseEvent) {
@@ -80,10 +83,13 @@
 	<!-- Show focused character when one is selected -->
 	<div class="focused-character-container" oncontextmenu={onRightClick}>
 		<div class="focused-header">
-			<button class="edit-button" onclick={toggleTextarea}>
-				{showTextarea ? '📝 Hide Editor' : '✏️ Edit Character'}
+			<button
+				class="edit-button"
+				onclick={toggleTextarea}
+				title={showTextarea ? 'Hide Editor' : 'Edit Character'}
+			>
+				{showTextarea ? '✖' : '✏'}
 			</button>
-			<div class="character-indicator">Focused Character</div>
 		</div>
 
 		{#if showTextarea || isTextareaFocused}
@@ -157,6 +163,7 @@
 				<PersistentTextArea
 					bind:value={allCharactersText}
 					placeholder="Enter character JSON here..."
+					onValueChange={handleAllCharactersTextUpdate}
 				/>
 				<span
 					class="help-icon"
@@ -182,14 +189,15 @@
 		border: 2px solid rgba(76, 195, 247, 0.5);
 		border-radius: 20px;
 		padding: 20px;
-		margin: 1rem;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
 		box-shadow:
 			0 12px 40px rgba(0, 0, 0, 0.5),
 			0 4px 12px rgba(0, 0, 0, 0.3),
 			inset 0 1px 0 rgba(255, 255, 255, 0.15);
 		backdrop-filter: blur(15px);
 		position: relative;
-		min-height: 300px;
 	}
 
 	.all-characters-container {
@@ -197,8 +205,7 @@
 		border: 2px solid rgba(255, 255, 255, 0.2);
 		border-radius: 20px;
 		padding: 20px;
-		margin: 1rem;
-		height: calc(100vh - 22vh - 2rem);
+		height: 100%;
 		box-shadow:
 			0 12px 40px rgba(0, 0, 0, 0.5),
 			0 4px 12px rgba(0, 0, 0, 0.3),
@@ -210,7 +217,7 @@
 
 	.focused-header {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-end;
 		align-items: center;
 		margin-bottom: 1rem;
 		padding-bottom: 0.5rem;
@@ -240,13 +247,18 @@
 	.edit-button {
 		background: linear-gradient(135deg, rgba(76, 195, 247, 0.2) 0%, rgba(76, 195, 247, 0.1) 100%);
 		border: 1px solid rgba(76, 195, 247, 0.3);
-		border-radius: 8px;
+		border-radius: 50%;
 		color: #4fc3f7;
-		padding: 8px 16px;
+		padding: 8px;
 		cursor: pointer;
-		font-size: 14px;
+		font-size: 16px;
 		font-weight: 600;
 		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		width: 36px;
+		height: 36px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.edit-button:hover {
@@ -316,13 +328,18 @@
 	}
 
 	.character-display {
+		flex: 1;
 		display: flex;
 		justify-content: center;
+		align-items: flex-start;
+		overflow-y: auto;
 	}
 
 	.character-display :global(.character-card) {
-		max-width: 400px;
-		flex: none;
+		width: 100%;
+		max-width: none;
+		flex: 1;
+		margin: 0;
 	}
 
 	.help-icon {

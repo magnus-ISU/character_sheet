@@ -29,17 +29,6 @@
 		}
 	});
 
-	// Update global state when text changes (but only after initialization)
-	$effect(() => {
-		if (isInitialized && allCharactersText.trim()) {
-			const characterStrings = allCharactersText
-				.split('---')
-				.map((s) => s.trim())
-				.filter((s) => s);
-			globalState.updateCharacterStrings(characterStrings);
-		}
-	});
-
 	// Keyboard event handler for attack multipliers - now targets hovered character
 	function selectAttackKeyboard(event: KeyboardEvent) {
 		const key = event.key;
@@ -149,22 +138,26 @@
 
 <main>
 	<div class="app-container">
-		{#if globalState.focusedCharacter}
-			<!-- Two-column layout: Focused character on left, character list on right -->
-			<div class="focused-layout">
-				<div class="focused-column">
-					<FocusedCharacter {tooltip} {updateCharacterHealth} bind:allCharactersText />
-				</div>
-				<div class="list-column">
-					<CharacterList {tooltip} {updateCharacterHealth} />
-				</div>
+		<!-- Always use two-column layout: Character editor on left, character list on right -->
+		<div class="focused-layout">
+			<div class="focused-column">
+				<FocusedCharacter
+					{tooltip}
+					{updateCharacterHealth}
+					bind:allCharactersText
+					updateGlobalState={(newText) => {
+						const characterStrings = newText
+							.split('---')
+							.map((s) => s.trim())
+							.filter((s) => s);
+						globalState.updateCharacterStrings(characterStrings);
+					}}
+				/>
 			</div>
-		{:else}
-			<!-- Single-column layout: Show character editor when no focus -->
-			<div class="full-layout">
-				<FocusedCharacter {tooltip} {updateCharacterHealth} bind:allCharactersText />
+			<div class="list-column">
+				<CharacterList {tooltip} {updateCharacterHealth} />
 			</div>
-		{/if}
+		</div>
 	</div>
 
 	<div class="log-container">
