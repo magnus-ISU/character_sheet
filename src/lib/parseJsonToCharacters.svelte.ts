@@ -10,15 +10,21 @@ function parseSlashName(originalName: string): { parent: string; name: string } 
 	return { parent: splitName[0].trim(), name: splitName[1].trim() };
 }
 
-// Parse JSON input into characters
-function parseCharacters(characterStrings: string[]): Character[] {
+// Parse input text into characters
+function parseCharacters(input: string[]): Character[] {
+	// Join all input and process as one document
+	const fullText = input.join('\n');
+
+	// Parse globals and character sections
+	const { globals, characterSections } = parseDocument(fullText);
+
 	const parsedCharacters: Character[] = [];
 
-	for (let i = 0; i < characterStrings.length; i++) {
-		const characterDefinition = characterStrings[i].trim();
+	for (let i = 0; i < characterSections.length; i++) {
+		const characterDefinition = characterSections[i].trim();
 		if (!characterDefinition) continue;
 
-		const character = processCharacter(characterDefinition, i);
+		const character = processCharacter(characterDefinition, i, globals);
 		if (character) {
 			parsedCharacters.push(character);
 		}
@@ -27,13 +33,88 @@ function parseCharacters(characterStrings: string[]): Character[] {
 	return parsedCharacters;
 }
 
+// Parse the full document into globals and character sections
+function parseDocument(text: string): {
+	globals: Record<string, any>;
+	characterSections: string[];
+} {
+	// Remove comments (everything after # to end of line)
+	const textWithoutComments = text.replace(/#[^\n]*/g, '');
+
+	// Split by --- to separate sections
+	const sections = textWithoutComments.split('---');
+
+	let globals: Record<string, any> = {};
+	let characterSections: string[] = [];
+
+	if (sections.length === 1) {
+		// No --- found, treat entire text as character sections
+		characterSections = [sections[0]];
+	} else {
+		// First section is globals
+		const globalsText = sections[0].trim();
+		if (globalsText) {
+			globals = parseGlobals(globalsText);
+		}
+
+		// Rest are character sections
+		characterSections = sections.slice(1);
+	}
+
+	return { globals, characterSections };
+}
+
+// Parse globals section
+function parseGlobals(globalsText: string): Record<string, any> {
+	try {
+		// Convert newlines to commas for parsing and clean up
+		const normalizedText = cleanupForParsing(globalsText);
+		const parseString = `{ ${normalizedText} }`;
+		return parseFlexibleJSON(parseString);
+	} catch (e: any) {
+		console.error(`Error parsing globals: ${e.message}`);
+		return {};
+	}
+}
+
+// Clean up text for JSON parsing
+function cleanupForParsing(text: string): string {
+	// Convert newlines to commas (they act as delimiters)
+	let normalized = text.replace(/\n/g, ', ');
+
+	// Remove commas that directly follow a closing brace '}' when the next non-space
+	// character starts a word (description). Keep commas inside arrays or object lists.
+	normalized = normalized.replace(/}\s*,\s*(?=[A-Za-z])/g, '} ');
+
+	// Remove multiple consecutive commas that can be introduced in previous steps
+	normalized = normalized.replace(/,\s*,+/g, ','); // collapse duplicate commas
+	// Trim leading/trailing commas
+	normalized = normalized.replace(/^\s*,/g, '');
+	normalized = normalized.replace(/,\s*$/g, '');
+
+	// Collapse multiple spaces
+	normalized = normalized.replace(/\s+/g, ' ');
+
+	return normalized.trim();
+}
+
 // Process individual character object
-function processCharacter(characterDefinition: string, index: number): Character | undefined {
+function processCharacter(
+	characterDefinition: string,
+	index: number,
+	globals: Record<string, any>
+): Character | undefined {
 	let obj: any;
 
 	try {
-		const parseString = `{ ${characterDefinition} }`;
+		// Clean up and normalize the definition
+		const normalizedDefinition = cleanupForParsing(characterDefinition);
+		const parseString = `{ ${normalizedDefinition} }`;
 		obj = parseFlexibleJSON(parseString);
+
+		// Apply globals first
+		obj = { ...globals, ...obj };
+
 		if (!obj.name) return undefined;
 	} catch (e: any) {
 		console.error(`Parsing error: ${e.message} in character ${characterDefinition}`);
@@ -44,7 +125,7 @@ function processCharacter(characterDefinition: string, index: number): Character
 		name: obj.name,
 		index,
 		originalText: characterDefinition,
-		numbers: {},
+		numbers: {} as any,
 		features: {}
 	};
 
@@ -56,30 +137,39 @@ function processCharacter(characterDefinition: string, index: number): Character
 
 		if (isNumberValue(value)) {
 			// Handle numeric stats - create enhanced NumberStat
-			createEnhancedNumberStat(character, normalizedKey, valStr);
+			createNumberStat(character, normalizedKey, valStr);
 		} else if (typeof value === 'object' && value !== null) {
 			parseAndAddFeature(character, key, value);
+		} else if (typeof value === 'string' && value.includes('{')) {
+			// Handle inline feature definitions like "sword {roll str vs ac, hit 1d10}"
+			parseInlineFeature(character, key, value);
 		}
 	}
 
-	// Guarantee at least a couple properties
-	if (!character.numbers.hasOwnProperty('max_hp')) return undefined;
-	if (!character.numbers.hasOwnProperty('damage')) return undefined;
+	// Ensure required properties exist
+	if (!character.numbers.hasOwnProperty('health')) {
+		// Create a default health if it doesn't exist
+		createNumberStat(character, 'health', '1');
+	}
+	if (!character.numbers.hasOwnProperty('damage')) {
+		createNumberStat(character, 'damage', '0');
+	}
 
-	// Auto-initialize stat properties and calculate final values
-	initializeStatProperties(character);
-	processStatModifiers(character);
+	// Calculate final values
 	calculateFinalValues(character);
 
-	addAttackChips(character);
 	// Add line number information
-	let lineNumbers = getKeyLineNumbers(`{${character.originalText}}`);
-	for (const [key, row] of Object.entries(lineNumbers)) {
-		let { name } = parseSlashName(key);
-		name = normalizeKey(name);
-		if (character.numbers[name] !== undefined) {
-			character.numbers[name].row = row;
+	try {
+		let lineNumbers = getKeyLineNumbers(`{${cleanupForParsing(characterDefinition)}}`);
+		for (const [key, row] of Object.entries(lineNumbers)) {
+			let { name } = parseSlashName(key);
+			name = normalizeKey(name);
+			if (character.numbers[name] !== undefined) {
+				character.numbers[name].row = row;
+			}
 		}
+	} catch (e) {
+		// Ignore line number errors
 	}
 
 	return character;
@@ -98,109 +188,64 @@ function isNumberValue(value: any): boolean {
 	);
 }
 
-// Create an enhanced NumberStat object with subfields
-function createEnhancedNumberStat(
-	character: Character,
-	originalName: string,
-	baseValue: string
-): undefined {
-	let numValue = Number(baseValue);
+// Create a NumberStat object
+function createNumberStat(character: Character, originalName: string, baseValue: string): void {
 	const { parent, name } = parseSlashName(originalName);
 
-	// Handle subfield definitions (e.g., "str.attack 5")
-	const subfieldMatch = name.match(/^(\w+)\.(\w+)$/);
-	if (subfieldMatch) {
-		const [, statName, subfieldName] = subfieldMatch;
+	// Handle child definitions (e.g., "str.defense", "level.used_healing_surges")
+	const childMatch = name.match(/^(\w+)\.(\w+)$/);
+	if (childMatch) {
+		const [, statName, childName] = childMatch;
 
 		// Ensure parent stat exists
 		if (!character.numbers[statName]) {
-			createEnhancedNumberStat(character, statName, '0');
+			createNumberStat(character, statName, '0');
 		}
 
-		// Set the subfield
-		const stat = character.numbers[statName];
-		if (subfieldName === 'attack') {
-			stat.attack = numValue;
-		} else if (subfieldName === 'defense') {
-			stat.defense = numValue;
-		} else if (subfieldName === 'roll') {
-			stat.roll = baseValue; // Keep as string for dice expressions
-		} else if (subfieldName === 'canCrit') {
-			stat.canCrit = Boolean(numValue);
-		} else if (subfieldName === 'renderSubfields') {
-			stat.renderSubfields = Boolean(numValue);
-		}
-		return;
-	}
-
-	// Handle object-style stat definitions (e.g., "ac {baseValue: 20, canCrit: true}")
-	if (typeof baseValue === 'object') {
-		const statObj = baseValue as any;
-		numValue = Number(statObj.baseValue || statObj.value || 0);
-
-		const stat: NumberStat = {
-			name: name,
-			parentName: parent,
-			baseValue: String(numValue),
+		// Create child stat
+		const childStat: NumberStat = {
+			name: childName,
+			base: baseValue,
 			modifiers: [],
-			value: numValue,
-			attack: numValue,
-			defense: numValue,
-			roll: 'd20',
-			canCrit: name === 'ac' ? true : statObj.canCrit || false,
-			renderSubfields: statObj.renderSubfields !== false
+			value: evaluateExpression(baseValue, character.numbers),
+			parent: character.numbers[statName],
+			children: {},
+			render: !(childName === 'damage' || childName === 'health'),
+			roll: 'd20'
 		};
 
-		// Override with specific values if provided
-		if (statObj.attack !== undefined) stat.attack = Number(statObj.attack);
-		if (statObj.defense !== undefined) stat.defense = Number(statObj.defense);
-		if (statObj.roll !== undefined) stat.roll = String(statObj.roll);
-		if (statObj.canCrit !== undefined) stat.canCrit = Boolean(statObj.canCrit);
-
-		character.numbers[name] = stat;
+		character.numbers[statName].children[childName] = childStat;
 		return;
 	}
 
-	// Standard stat creation
-	character.numbers[name] = {
+	// Create main stat
+	const stat: NumberStat = {
 		name: name,
-		parentName: parent,
-		baseValue: baseValue,
+		base: baseValue,
 		modifiers: [],
-		value: numValue,
-		attack: numValue, // Auto-initialized to stat value
-		defense: numValue, // Auto-initialized to stat value
-		roll: 'd20', // Default roll
-		canCrit: name === 'ac', // AC can crit by default for 5e
-		renderSubfields: true
+		value: evaluateExpression(baseValue, character.numbers),
+		children: {},
+		render: !(name === 'damage' || name === 'health'),
+		roll: 'd20'
 	};
-}
 
-// Initialize stat properties after all stats are created
-function initializeStatProperties(character: Character): void {
-	for (const [name, stat] of Object.entries(character.numbers)) {
-		// Auto-initialize attack and defense to stat value if not explicitly set
-		if (stat.attack === undefined) stat.attack = stat.value;
-		if (stat.defense === undefined) stat.defense = stat.value;
-		if (stat.roll === undefined) stat.roll = 'd20';
-		if (stat.canCrit === undefined) stat.canCrit = name === 'ac';
-		if (stat.renderSubfields === undefined) stat.renderSubfields = true;
-	}
+	character.numbers[name] = stat;
 }
 
 // Enhanced feature parsing with attack info extraction
-function parseAndAddFeature(character: Character, originalName: string, feature: any): undefined {
+function parseAndAddFeature(character: Character, originalName: string, feature: any): void {
 	const { parent, name } = parseSlashName(originalName);
-	// iterate up to the last numeric value, which is description
+
+	// Handle numbered feature properties
 	let num_features = 0;
 	for (num_features = 0; feature[num_features]; num_features++) {}
 	if (feature.description === undefined) {
 		feature.description = feature[--num_features] || '';
 	}
-	// Now populate other numeric values to missing values in this array
+
+	// Parse other values
 	let otherValuesToParse = ['hit', 'roll'];
 	for (let i = 0; i < num_features; i++) {
-		// Pop otherValuesToParse until we need one
 		while (
 			otherValuesToParse.length > 0 &&
 			feature[otherValuesToParse[otherValuesToParse.length - 1]] !== undefined
@@ -215,37 +260,46 @@ function parseAndAddFeature(character: Character, originalName: string, feature:
 
 	let [rollFormula, against] = extractAgainst(feature.roll || '');
 
-	let f: Feature = {
-		name: name,
-		description: feature.description || '',
-		roll: rollFormula,
-		roll_against: against,
-		hit: feature.hit || '',
-		miss: feature.miss || '',
-		hit_effect: feature.hitEffect || '',
-		miss_effect: feature.missEffect || '',
-		stats: Array.isArray(feature.stats) ? feature.stats : [],
-		chips: Array.isArray(feature.chips) ? feature.chips : []
-	};
-
-	// Parse attack information if this is an attack
+	// Parse attack info
+	let attackInfo: AttackInfo | undefined;
 	if (rollFormula && against) {
-		f.attackInfo = parseAttackInfo(
+		attackInfo = parseAttackInfo(
+			character,
 			rollFormula,
 			against,
-			f.hit,
-			f.miss,
-			f.hit_effect,
-			f.miss_effect
+			feature.hit || '',
+			feature.miss || '',
+			feature.hit_effect || '',
+			feature.miss_effect || ''
 		);
 	}
 
-	character.features[parent] || (character.features[parent] = []);
+	const f: Feature = {
+		name: name,
+		description: feature.description || '',
+		stats: Array.isArray(feature.stats) ? feature.stats.map((s: any) => parseStatModifier(s)) : [],
+		attack: attackInfo
+	};
+
+	if (!character.features[parent]) {
+		character.features[parent] = [];
+	}
 	character.features[parent].push(f);
+}
+
+// Parse stat modifier from feature
+function parseStatModifier(statDef: any): StatModifier {
+	return {
+		stat: statDef.stat || '',
+		bonus: statDef.bonus || '',
+		roll: statDef.roll || '',
+		source: null as any // Will be set later
+	};
 }
 
 // Parse attack information into structured AttackInfo
 function parseAttackInfo(
+	character: Character,
 	roll: string,
 	rollAgainst: string,
 	hit: string,
@@ -253,29 +307,35 @@ function parseAttackInfo(
 	hitEffect: string,
 	missEffect: string
 ): AttackInfo {
-	// Handle shorthand like "int vs dex" -> "int.attack vs dex.defense"
-	let processedRoll = roll;
-	let processedRollAgainst = rollAgainst;
-
-	// If roll doesn't contain operators, assume it's a stat name and add .attack
-	if (!/[+\-*/()]/.test(roll) && !/\./.test(roll)) {
-		processedRoll = `${roll}.attack`;
-	}
-
-	// If rollAgainst doesn't contain operators, assume it's a stat name and add .defense
-	if (!/[+\-*/()]/.test(rollAgainst) && !/\./.test(rollAgainst)) {
-		processedRollAgainst = `${rollAgainst}.defense`;
-	}
-
 	// Parse roll into main roll and modifier
-	// The main roll uses the stat's default roll, modifier is everything else
-	const rollParts = processedRoll.split(/([+\-])/);
+	const rollParts = roll.split(/([+\-])/);
 	const mainRoll = rollParts[0].trim();
 	const modifier = rollParts.length > 1 ? rollParts.slice(1).join('').trim() : '';
 
+	// Determine the roll to use based on the attack logic requirements
+	let attackRoll = 'd20'; // default
+
+	// Get the defense roll if it exists
+	const defenseRoll: string = getStatRoll(character, rollAgainst + '.defense') || 'd20';
+	const attackerRoll: string = getStatRoll(character, mainRoll + '.roll') || 'd20';
+
+	// Apply the attack roll logic:
+	// attacks should use the defenses roll if it is not 'd20',
+	// or else their roll unless they are both '2d20kh1', in which case they use 'd20'
+	if (defenseRoll !== 'd20') {
+		attackRoll = defenseRoll;
+	} else if (attackerRoll !== 'd20') {
+		const advantageRoll = '2d20kh1';
+		if (attackerRoll === advantageRoll && defenseRoll === advantageRoll) {
+			attackRoll = 'd20';
+		} else {
+			attackRoll = attackerRoll;
+		}
+	}
+
 	return {
-		roll: processedRoll,
-		rollAgainst: processedRollAgainst,
+		roll: roll,
+		rollAgainst: rollAgainst,
 		mainRoll: mainRoll,
 		modifier: modifier,
 		hit: hit,
@@ -285,92 +345,31 @@ function parseAttackInfo(
 	};
 }
 
-function addAttackChips(character: Character) {
-	for (const featureGroup of Object.values(character.features)) {
-		for (const feature of featureGroup) {
-			if (feature.roll && feature.roll !== '0') {
-				if ('' !== feature.roll_against) {
-					let bonus = rollDiceExpression(character, feature.roll, { noDice: true });
-					feature.chips.push(`${bonus >= 0 ? '+' : ''}${bonus} vs ${feature.roll_against}`);
-				} else {
-					feature.chips.push(`${feature.roll}`);
-				}
-			}
-			if (feature.hit) {
-				feature.chips.push(prettyStringProcessDiceExpression(character, feature.hit));
-			}
-			if (feature.miss === 'half') {
-				feature.chips.push('save half');
-			} else if (feature.miss) {
-				feature.chips.push(
-					`(${prettyStringProcessDiceExpression(character, feature.miss)} on save)`
-				);
-			}
+// Get the roll value for a stat (including children)
+function getStatRoll(character: Character, statPath: string): string | undefined {
+	const parts = statPath.split('.');
+	if (parts.length === 1) {
+		return character.numbers[parts[0]]?.roll;
+	} else if (parts.length === 2) {
+		const [statName, childName] = parts;
+		const stat = character.numbers[statName];
+		if (!stat) return undefined;
+
+		// Check if child exists
+		if (stat.children[childName]) {
+			return stat.children[childName].roll;
 		}
+
+		// Child doesn't exist, use parent's roll
+		return stat.roll;
 	}
+	return undefined;
 }
 
 // Extract the "against" part from a roll string
 function extractAgainst(roll: string): [string, string] {
-	let split = roll.split(' vs ');
+	const split = roll.split(' vs ');
 	return [split[0], split[1] || ''];
-}
-
-// Process stat modifiers from traits
-function processStatModifiers(character: Character): void {
-	for (const featureGroup of Object.values(character.features)) {
-		for (const feature of featureGroup) {
-			if (feature.stats) {
-				for (const modifier of feature.stats) {
-					applyStatModifier(character, feature, modifier);
-				}
-			}
-		}
-	}
-}
-
-function splitModifier(modifier: string): {
-	parent: string;
-	stat: string;
-	operator: '+' | '-' | '*' | '/';
-	expression: string;
-	prefix: string;
-} {
-	const splitModifier = modifier.split('=');
-	if (splitModifier.length !== 2) {
-		console.log(
-			`cannot apply modifier "${modifier}" - should have single = existing - must be of the form STAT [+-*/]= EXPRESSION`
-		);
-		return { parent: '', stat: '', operator: '+', expression: '', prefix: '' };
-	}
-	const [prefix, expression] = splitModifier;
-	const operator = prefix.substring(prefix.length - 1);
-	if (!['+', '-', '*', '/'].includes(operator)) {
-		console.log(
-			`cannot apply modifier "${modifier}" - wrong operator - must be of the form STAT [+-*/]= EXPRESSION`
-		);
-		return { parent: '', stat: '', operator: '+', expression: '', prefix: '' };
-	}
-	const stat = prefix.substring(0, prefix.length - 1);
-
-	const normalizedStatName = normalizeKey(stat);
-	const { parent, name } = parseSlashName(normalizedStatName);
-	return { parent, stat: name, operator: operator as any, expression, prefix: normalizedStatName };
-}
-
-// Apply a stat modifier to the appropriate number stat
-function applyStatModifier(character: Character, source: Feature, modifier: string): void {
-	let { stat, prefix } = splitModifier(modifier);
-	// Ensure the stat exists
-	if (!character.numbers[stat]) {
-		createEnhancedNumberStat(character, prefix, '0');
-	}
-
-	// Add the modifier
-	character.numbers[stat].modifiers.push({
-		source,
-		modifier
-	});
 }
 
 // Calculate final values for all number stats
@@ -387,10 +386,18 @@ function calculateFinalValues(character: Character): void {
 
 			if (newValue !== oldValue && !isNaN(newValue)) {
 				numberStat.value = newValue;
-				// Update attack and defense if they were auto-initialized
-				if (numberStat.attack === oldValue) numberStat.attack = newValue;
-				if (numberStat.defense === oldValue) numberStat.defense = newValue;
 				changed = true;
+			}
+
+			// Also calculate child values
+			for (const [childName, childStat] of Object.entries(numberStat.children)) {
+				const oldChildValue = childStat.value;
+				const newChildValue = calculateStatValue(childStat, character.numbers);
+
+				if (newChildValue !== oldChildValue && !isNaN(newChildValue)) {
+					childStat.value = newChildValue;
+					changed = true;
+				}
 			}
 		}
 
@@ -404,23 +411,20 @@ function calculateStatValue(
 	numberStat: NumberStat,
 	allNumbers: Record<string, NumberStat>
 ): number {
-	let baseValue = numberStat.baseValue;
-	let result = evaluateExpression(baseValue, allNumbers);
+	let result = evaluateExpression(numberStat.base, allNumbers);
 	if (isNaN(result)) return NaN;
 
 	// Apply modifiers
-	for (const { modifier } of numberStat.modifiers) {
-		let { operator, expression } = splitModifier(modifier);
-
-		const evaluatedValue = evaluateExpression(expression, allNumbers);
+	for (const modifier of numberStat.modifiers) {
+		const evaluatedValue = evaluateExpression(modifier.bonus, allNumbers);
 
 		if (isNaN(evaluatedValue)) return NaN;
 
-		if (operator === '+') result += evaluatedValue;
-		if (operator === '-') result -= evaluatedValue;
-		if (operator === '*') result *= evaluatedValue;
-		if (operator === '/') result /= evaluatedValue;
+		result += evaluatedValue; // For now, just add modifiers
 	}
+
+	// Round down to integer (typical for stats like proficiency bonus)
+	result = Math.floor(result);
 
 	return result;
 }
@@ -431,11 +435,29 @@ function evaluateExpression(expr: string, numbers: Record<string, NumberStat>): 
 
 	let expression = expr.toString();
 
-	// Replace stat references with their values
+	// Replace stat references with their values (including child stats)
 	for (const [statName, numberStat] of Object.entries(numbers)) {
+		// Replace main stat references
 		const regex = new RegExp(`\\b${statName}\\b`, 'g');
 		expression = expression.replace(regex, Math.floor(numberStat.value).toString());
+
+		// Replace child stat references
+		for (const [childName, childStat] of Object.entries(numberStat.children)) {
+			const childRegex = new RegExp(`\\b${statName}\\.${childName}\\b`, 'g');
+			expression = expression.replace(childRegex, Math.floor(childStat.value).toString());
+		}
 	}
+
+	// Handle virtual child access (accessing children that don't exist)
+	// Replace pattern like "stat.child" where child doesn't exist with parent value
+	expression = expression.replace(/\b(\w+)\.(\w+)\b/g, (match, statName, childName) => {
+		const stat = numbers[statName];
+		if (stat && !stat.children[childName]) {
+			// Child doesn't exist, use parent value
+			return Math.floor(stat.value).toString();
+		}
+		return match; // Keep original if not found
+	});
 
 	// If there are still letters, return NaN
 	if (/[a-zA-Z]/.test(expression)) {
@@ -446,5 +468,25 @@ function evaluateExpression(expr: string, numbers: Record<string, NumberStat>): 
 		return Function(`"use strict"; return (${expression})`)();
 	} catch {
 		return NaN;
+	}
+}
+
+// Parse inline feature definitions
+function parseInlineFeature(character: Character, key: string, value: string): void {
+	// Extract the feature object and description
+	const match = value.match(/^(.*?)\s*\{([^}]+)\}\s*(.*)$/);
+	if (!match) return;
+
+	const [, prefix, objContent, description] = match;
+
+	try {
+		// Parse the object content
+		const featureObj = parseFlexibleJSON(`{${objContent}}`) as any;
+		featureObj.description = description.trim();
+
+		// Parse as a feature
+		parseAndAddFeature(character, key, featureObj);
+	} catch (e) {
+		console.error(`Error parsing inline feature ${key}: ${e}`);
 	}
 }

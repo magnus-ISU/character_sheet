@@ -79,10 +79,11 @@ into
             name: "Impervious Sanctity of Mind", description: "You have an iron will.", attack: undefined, stats: [
                {stat: "cha.defense", roll: "2d20kh1", bonus: '', source: -> pointer}
             ]
-         }
+         },
+         ...etc
       }
    },
-   {index: 2, ...},
+   {index: 2, ...etc},
 ]
 
 Make sure with a unit test that this passes

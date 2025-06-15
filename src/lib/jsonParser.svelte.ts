@@ -217,6 +217,31 @@ class UnquotedJSONParser {
 			this.advance(); // consume ':'
 			this.skipWhitespace();
 			const value = this.parseValue();
+
+			// Check for description after the object/value (same logic as implicit object case)
+			this.skipWhitespace();
+			if (
+				typeof value === 'object' &&
+				value !== null &&
+				this.pos < this.input.length &&
+				this.peek() !== ',' &&
+				this.peek() !== '}'
+			) {
+				let description = '';
+				while (this.pos < this.input.length) {
+					const char = this.peek();
+					if (char === ',' || char === '}') {
+						break;
+					}
+					description += this.advance();
+				}
+				description = description.trim();
+
+				if (description) {
+					(value as any).description = description;
+				}
+			}
+
 			return { key: potentialKey, value };
 		}
 
