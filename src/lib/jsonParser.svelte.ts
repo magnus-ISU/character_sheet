@@ -191,20 +191,24 @@ class UnquotedJSONParser {
 			// Check for description after the object
 			this.skipWhitespace();
 			if (this.pos < this.input.length && this.peek() !== ',' && this.peek() !== '}') {
-				// Look ahead to see if there's a description before the next delimiter
-				const descStart = this.pos;
+				// If next char begins a quoted string, use parseString to capture full description (commas allowed inside)
 				let description = '';
-				while (this.pos < this.input.length) {
-					const char = this.peek();
-					if (char === ',' || char === '}') {
-						break;
+				if (this.peek() === '"') {
+					description = this.parseString();
+				} else {
+					// Unquoted description - read until delimiter
+					while (this.pos < this.input.length) {
+						const char = this.peek();
+						if (char === ',' || char === '}') {
+							break;
+						}
+						description += this.advance();
 					}
-					description += this.advance();
+					description = description.trim();
 				}
-				description = description.trim();
 
 				if (description && typeof objValue === 'object' && objValue !== null) {
-					objValue.description = description;
+					(objValue as any).description = description;
 				}
 			}
 
@@ -220,24 +224,22 @@ class UnquotedJSONParser {
 
 			// Check for description after the object/value (same logic as implicit object case)
 			this.skipWhitespace();
-			if (
-				typeof value === 'object' &&
-				value !== null &&
-				this.pos < this.input.length &&
-				this.peek() !== ',' &&
-				this.peek() !== '}'
-			) {
+			if (this.pos < this.input.length && this.peek() !== ',' && this.peek() !== '}') {
 				let description = '';
-				while (this.pos < this.input.length) {
-					const char = this.peek();
-					if (char === ',' || char === '}') {
-						break;
+				if (this.peek() === '"') {
+					description = this.parseString();
+				} else {
+					while (this.pos < this.input.length) {
+						const char = this.peek();
+						if (char === ',' || char === '}') {
+							break;
+						}
+						description += this.advance();
 					}
-					description += this.advance();
+					description = description.trim();
 				}
-				description = description.trim();
 
-				if (description) {
+				if (description && typeof value === 'object' && value !== null) {
 					(value as any).description = description;
 				}
 			}
