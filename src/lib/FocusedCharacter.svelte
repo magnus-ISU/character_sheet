@@ -267,14 +267,6 @@
 		box-shadow: 0 4px 12px rgba(76, 195, 247, 0.2);
 	}
 
-	.character-indicator {
-		color: #4fc3f7;
-		font-size: 14px;
-		font-weight: 600;
-		text-shadow: 0 2px 8px rgba(79, 195, 247, 0.3);
-		letter-spacing: 0.5px;
-	}
-
 	.textarea-container {
 		margin-bottom: 1rem;
 		background: rgba(0, 0, 0, 0.3);

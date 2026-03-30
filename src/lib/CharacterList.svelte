@@ -165,15 +165,4 @@
 		border: 4px solid transparent;
 		border-top-color: rgba(76, 195, 247, 0.9);
 	}
-
-	.no-focus-message {
-		text-align: center;
-		color: rgba(255, 255, 255, 0.7);
-		padding: 2rem;
-	}
-
-	.no-focus-message h3 {
-		color: #4fc3f7;
-		margin-bottom: 1rem;
-	}
 </style>
