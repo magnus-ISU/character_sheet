@@ -102,7 +102,7 @@ function cleanupForParsing(text: string): string {
 function processCharacter(
 	characterDefinition: string,
 	index: number,
-	globals: Record<string, any>
+	globals: Record<string, any>,
 ): Character | undefined {
 	let obj: any;
 
@@ -126,7 +126,7 @@ function processCharacter(
 		index,
 		originalText: characterDefinition,
 		numbers: {} as any,
-		features: {}
+		features: {},
 	};
 
 	// Process each key-value pair
@@ -211,7 +211,7 @@ function createNumberStat(character: Character, originalName: string, baseValue:
 			parent: character.numbers[statName],
 			children: {},
 			render: !(childName === 'damage' || childName === 'health'),
-			roll: 'd20'
+			roll: 'd20',
 		};
 
 		character.numbers[statName].children[childName] = childStat;
@@ -226,7 +226,7 @@ function createNumberStat(character: Character, originalName: string, baseValue:
 		value: evaluateExpression(baseValue, character.numbers),
 		children: {},
 		render: !(name === 'damage' || name === 'health'),
-		roll: 'd20'
+		roll: 'd20',
 	};
 
 	character.numbers[name] = stat;
@@ -270,7 +270,7 @@ function parseAndAddFeature(character: Character, originalName: string, feature:
 			feature.hit || '',
 			feature.miss || '',
 			feature.hit_effect || '',
-			feature.miss_effect || ''
+			feature.miss_effect || '',
 		);
 	}
 
@@ -278,7 +278,7 @@ function parseAndAddFeature(character: Character, originalName: string, feature:
 		name: name,
 		description: feature.description || '',
 		stats: Array.isArray(feature.stats) ? feature.stats.map((s: any) => parseStatModifier(s)) : [],
-		attack: attackInfo
+		attack: attackInfo,
 	};
 
 	if (!character.features[parent]) {
@@ -293,7 +293,7 @@ function parseStatModifier(statDef: any): StatModifier {
 		stat: statDef.stat || '',
 		bonus: statDef.bonus || '',
 		roll: statDef.roll || '',
-		source: null as any // Will be set later
+		source: null as any, // Will be set later
 	};
 }
 
@@ -305,7 +305,7 @@ function parseAttackInfo(
 	hit: string,
 	miss: string,
 	hitEffect: string,
-	missEffect: string
+	missEffect: string,
 ): AttackInfo {
 	// Parse roll into main roll and modifier
 	const rollParts = roll.split(/([+\-])/);
@@ -341,7 +341,7 @@ function parseAttackInfo(
 		hit: hit,
 		miss: miss,
 		hitEffect: hitEffect,
-		missEffect: missEffect
+		missEffect: missEffect,
 	};
 }
 
@@ -409,7 +409,7 @@ function calculateFinalValues(character: Character): void {
 // Calculate the final value for a single stat
 function calculateStatValue(
 	numberStat: NumberStat,
-	allNumbers: Record<string, NumberStat>
+	allNumbers: Record<string, NumberStat>,
 ): number {
 	let result = evaluateExpression(numberStat.base, allNumbers);
 	if (isNaN(result)) return NaN;

@@ -62,7 +62,7 @@ export const globalState = $state({
 				message: '',
 				type: 'roll',
 				timestamp: undefined,
-				key: this.logEntries.length
+				key: this.logEntries.length,
 			});
 		}
 
@@ -72,7 +72,7 @@ export const globalState = $state({
 	clearAttackSelection() {
 		this.selectedAttack = undefined;
 		this.selectedAttackTargets = {};
-	}
+	},
 });
 
 // Initial state setup with fallback to default when empty

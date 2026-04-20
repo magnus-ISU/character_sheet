@@ -1,36 +1,36 @@
 <script lang="ts">
-	let {
-		character,
-		updateCharacterHealth
-	}: {
-		character: Character;
-		updateCharacterHealth: Function;
-	} = $props();
+let {
+	character,
+	updateCharacterHealth,
+}: {
+	character: Character;
+	updateCharacterHealth: Function;
+} = $props();
 
-	let max_hp = $derived(character.numbers.max_hp.value);
-	let damage = $derived(character.numbers.damage.value);
-	let currentHp = $derived(Math.max(0, max_hp - damage));
-	let percentage = $derived((currentHp / max_hp) * 100);
+let max_hp = $derived(character.numbers.max_hp.value);
+let damage = $derived(character.numbers.damage.value);
+let currentHp = $derived(Math.max(0, max_hp - damage));
+let percentage = $derived((currentHp / max_hp) * 100);
 
-	function handleHealthUpdate(event: any) {
-		if (event.key === 'Enter') {
-			const value = event.target.value.trim();
-			if (!value) return;
-			let newDamage;
-			if (value.startsWith('+')) {
-				const heal = parseFloat(value.substring(1));
-				newDamage = damage - heal;
-			} else if (value.startsWith('-')) {
-				const damageAdd = parseFloat(value.substring(1));
-				newDamage = damage + damageAdd;
-			} else {
-				const currentHpInput = parseFloat(value);
-				newDamage = max_hp - currentHpInput;
-			}
-			updateCharacterHealth(character, newDamage);
-			event.target.value = '';
+function handleHealthUpdate(event: any) {
+	if (event.key === 'Enter') {
+		const value = event.target.value.trim();
+		if (!value) return;
+		let newDamage;
+		if (value.startsWith('+')) {
+			const heal = parseFloat(value.substring(1));
+			newDamage = damage - heal;
+		} else if (value.startsWith('-')) {
+			const damageAdd = parseFloat(value.substring(1));
+			newDamage = damage + damageAdd;
+		} else {
+			const currentHpInput = parseFloat(value);
+			newDamage = max_hp - currentHpInput;
 		}
+		updateCharacterHealth(character, newDamage);
+		event.target.value = '';
 	}
+}
 </script>
 
 <div class="character-list-card">

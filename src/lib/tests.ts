@@ -97,21 +97,21 @@ function testNewFormat(): void {
 		// Test health property (was max_hp)
 		console.log(formatTestResult('Luke has health property', luke.numbers.health !== undefined));
 		console.log(
-			formatTestResult('Luke health render is false', luke.numbers.health?.render === false)
+			formatTestResult('Luke health render is false', luke.numbers.health?.render === false),
 		);
 
 		// Test damage property
 		console.log(formatTestResult('Luke has damage property', luke.numbers.damage !== undefined));
 		console.log(
-			formatTestResult('Luke damage render is false', luke.numbers.damage?.render === false)
+			formatTestResult('Luke damage render is false', luke.numbers.damage?.render === false),
 		);
 
 		// Test child stats with dots
 		console.log(
 			formatTestResult(
 				'Luke level has used_healing_surges child',
-				luke.numbers.level?.children?.used_healing_surges !== undefined
-			)
+				luke.numbers.level?.children?.used_healing_surges !== undefined,
+			),
 		);
 
 		// Test stat calculations
@@ -119,8 +119,8 @@ function testNewFormat(): void {
 		console.log(
 			formatTestResult(
 				`Luke health calculated correctly (expected ${expectedHealth})`,
-				Math.abs(luke.numbers.health.value - expectedHealth) < 0.01
-			)
+				Math.abs(luke.numbers.health.value - expectedHealth) < 0.01,
+			),
 		);
 
 		// Test pb calculation
@@ -128,23 +128,23 @@ function testNewFormat(): void {
 		console.log(
 			formatTestResult(
 				`Luke pb calculated correctly (expected ${expectedPb})`,
-				luke.numbers.pb.value === expectedPb
-			)
+				luke.numbers.pb.value === expectedPb,
+			),
 		);
 
 		// Test features
 		console.log(
 			formatTestResult(
 				'Luke has Impervious Sanctity of Mind feature',
-				luke.features['']?.some((f) => f.name === 'Impervious Sanctity of Mind')
-			)
+				luke.features['']?.some((f) => f.name === 'Impervious Sanctity of Mind'),
+			),
 		);
 
 		console.log(
 			formatTestResult(
 				'Luke has longsword attack',
-				luke.features['']?.some((f) => f.name === 'longsword')
-			)
+				luke.features['']?.some((f) => f.name === 'longsword'),
+			),
 		);
 
 		// Test Goblin
@@ -152,8 +152,8 @@ function testNewFormat(): void {
 		console.log(
 			formatTestResult(
 				'Goblin has spear attack',
-				goblin.features['']?.some((f) => f.name === 'spear')
-			)
+				goblin.features['']?.some((f) => f.name === 'spear'),
+			),
 		);
 
 		// Display character structure for verification
@@ -185,8 +185,8 @@ health 10`;
 		console.log(
 			formatTestResult(
 				'Comments ignored during parsing',
-				characters.length === 1 && characters[0].name === 'Test'
-			)
+				characters.length === 1 && characters[0].name === 'Test',
+			),
 		);
 	} catch (error) {
 		console.log(formatTestResult('Comment Parsing', false, String(error)));
@@ -209,8 +209,8 @@ damage 0`;
 				'Newlines treated as commas',
 				characters.length === 1 &&
 					characters[0].numbers.str?.value === 5 &&
-					characters[0].numbers.health?.value === 10
-			)
+					characters[0].numbers.health?.value === 10,
+			),
 		);
 	} catch (error) {
 		console.log(formatTestResult('Newlines as Commas', false, String(error)));

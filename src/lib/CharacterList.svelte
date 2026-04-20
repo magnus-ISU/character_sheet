@@ -1,28 +1,28 @@
 <script lang="ts">
-	import { globalState } from './global_state.svelte';
-	import CharacterListCard from './CharacterListCard.svelte';
-	import GlobalTooltip from './GlobalTooltip.svelte';
-	import { groupby } from './util.svelte';
+import { globalState } from './global_state.svelte';
+import CharacterListCard from './CharacterListCard.svelte';
+import GlobalTooltip from './GlobalTooltip.svelte';
+import { groupby } from './util.svelte';
 
-	let {
-		tooltip,
-		updateCharacterHealth
-	}: {
-		tooltip: GlobalTooltip | undefined;
-		updateCharacterHealth: Function;
-	} = $props();
+let {
+	tooltip,
+	updateCharacterHealth,
+}: {
+	tooltip: GlobalTooltip | undefined;
+	updateCharacterHealth: Function;
+} = $props();
 
-	// Get character list and grouped characters
-	let characterList = $derived(globalState.characterList);
-	let groupedCharacters = $derived(groupby(characterList));
+// Get character list and grouped characters
+let characterList = $derived(globalState.characterList);
+let groupedCharacters = $derived(groupby(characterList));
 
-	function onCharacterRightClick(character: Character, e: MouseEvent) {
-		e.preventDefault();
-		// Right clicking a character sets it as focused
-		globalState.setFocusedCharacter(character.index);
-		globalState.clearAttackSelection();
-		tooltip?.hide();
-	}
+function onCharacterRightClick(character: Character, e: MouseEvent) {
+	e.preventDefault();
+	// Right clicking a character sets it as focused
+	globalState.setFocusedCharacter(character.index);
+	globalState.clearAttackSelection();
+	tooltip?.hide();
+}
 </script>
 
 <div class="character-list-container">

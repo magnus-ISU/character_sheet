@@ -1,80 +1,80 @@
 <script lang="ts">
-	import { globalState } from './global_state.svelte';
-	import CharacterCard from './CharacterCard.svelte';
-	import GlobalTooltip from './GlobalTooltip.svelte';
-	import PersistentTextArea from './PersistentTextArea.svelte';
-	import { LLMinstructions } from './llmInstructions.svelte';
+import { globalState } from './global_state.svelte';
+import CharacterCard from './CharacterCard.svelte';
+import GlobalTooltip from './GlobalTooltip.svelte';
+import PersistentTextArea from './PersistentTextArea.svelte';
+import { LLMinstructions } from './llmInstructions.svelte';
 
-	let {
-		tooltip,
-		updateCharacterHealth,
-		allCharactersText = $bindable(''),
-		updateGlobalState
-	}: {
-		tooltip: GlobalTooltip | undefined;
-		updateCharacterHealth: Function;
-		allCharactersText: string;
-		updateGlobalState?: (text: string) => void;
-	} = $props();
+let {
+	tooltip,
+	updateCharacterHealth,
+	allCharactersText = $bindable(''),
+	updateGlobalState,
+}: {
+	tooltip: GlobalTooltip | undefined;
+	updateCharacterHealth: Function;
+	allCharactersText: string;
+	updateGlobalState?: (text: string) => void;
+} = $props();
 
-	let textareaRef: HTMLTextAreaElement | undefined = $state();
-	let isTextareaFocused = $state(false);
-	let showTextarea = $state(false);
+let textareaRef: HTMLTextAreaElement | undefined = $state();
+let isTextareaFocused = $state(false);
+let showTextarea = $state(false);
 
-	// Get focused character and its textarea content
-	let focusedCharacter = $derived(globalState.focusedCharacter);
-	let characterText = $derived(
-		focusedCharacter ? globalState.characterStrings[focusedCharacter.index] : ''
-	);
+// Get focused character and its textarea content
+let focusedCharacter = $derived(globalState.focusedCharacter);
+let characterText = $derived(
+	focusedCharacter ? globalState.characterStrings[focusedCharacter.index] : '',
+);
 
-	function handleTextareaUpdate(newValue: string) {
-		if (focusedCharacter) {
-			const newStrings = [...globalState.characterStrings];
-			newStrings[focusedCharacter.index] = newValue;
-			globalState.updateCharacterStrings(newStrings);
-		}
+function handleTextareaUpdate(newValue: string) {
+	if (focusedCharacter) {
+		const newStrings = [...globalState.characterStrings];
+		newStrings[focusedCharacter.index] = newValue;
+		globalState.updateCharacterStrings(newStrings);
 	}
+}
 
-	function handleAllCharactersTextUpdate(newValue: string) {
-		allCharactersText = newValue;
-		updateGlobalState?.(newValue);
+function handleAllCharactersTextUpdate(newValue: string) {
+	allCharactersText = newValue;
+	updateGlobalState?.(newValue);
+}
+
+function onRightClick(e: MouseEvent) {
+	e.preventDefault();
+	// Right clicking focused character area goes back to no focus
+	globalState.setFocusedCharacter(undefined);
+	globalState.clearAttackSelection();
+	tooltip?.hide();
+}
+
+function toggleTextarea() {
+	showTextarea = !showTextarea;
+	if (showTextarea && textareaRef) {
+		setTimeout(() => textareaRef?.focus(), 0);
 	}
+}
 
-	function onRightClick(e: MouseEvent) {
-		e.preventDefault();
-		// Right clicking focused character area goes back to no focus
-		globalState.setFocusedCharacter(undefined);
-		globalState.clearAttackSelection();
-		tooltip?.hide();
-	}
+function handleTextareaFocus() {
+	isTextareaFocused = true;
+}
 
-	function toggleTextarea() {
-		showTextarea = !showTextarea;
-		if (showTextarea && textareaRef) {
-			setTimeout(() => textareaRef?.focus(), 0);
-		}
-	}
-
-	function handleTextareaFocus() {
-		isTextareaFocused = true;
-	}
-
-	function handleTextareaBlur() {
-		isTextareaFocused = false;
-		// Don't hide textarea immediately when losing focus
-		setTimeout(() => {
-			if (!isTextareaFocused) {
-				showTextarea = false;
-			}
-		}, 100);
-	}
-
-	function handleTextareaKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
+function handleTextareaBlur() {
+	isTextareaFocused = false;
+	// Don't hide textarea immediately when losing focus
+	setTimeout(() => {
+		if (!isTextareaFocused) {
 			showTextarea = false;
-			textareaRef?.blur();
 		}
+	}, 100);
+}
+
+function handleTextareaKeydown(e: KeyboardEvent) {
+	if (e.key === 'Escape') {
+		showTextarea = false;
+		textareaRef?.blur();
 	}
+}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

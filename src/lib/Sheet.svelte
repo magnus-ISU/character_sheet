@@ -1,135 +1,135 @@
 <script lang="ts">
-	import { fly } from 'svelte/transition';
-	import { flip } from 'svelte/animate';
-	import GlobalTooltip from './GlobalTooltip.svelte';
-	import { globalState, initializeGlobalState } from './global_state.svelte';
-	import { textareaInitialState } from './startingInputState.svelte';
-	import { processAttack } from './dice.svelte';
-	import FocusedCharacter from './FocusedCharacter.svelte';
-	import CharacterList from './CharacterList.svelte';
+import { fly } from 'svelte/transition';
+import { flip } from 'svelte/animate';
+import GlobalTooltip from './GlobalTooltip.svelte';
+import { globalState, initializeGlobalState } from './global_state.svelte';
+import { textareaInitialState } from './startingInputState.svelte';
+import { processAttack } from './dice.svelte';
+import FocusedCharacter from './FocusedCharacter.svelte';
+import CharacterList from './CharacterList.svelte';
 
-	// Initialize global state with initial character strings
-	let allCharactersText = $state(textareaInitialState.value);
-	let isInitialized = $state(false);
+// Initialize global state with initial character strings
+let allCharactersText = $state(textareaInitialState.value);
+let isInitialized = $state(false);
 
-	// Initialize on mount
-	$effect(() => {
-		if (!isInitialized) {
-			const initialStrings = textareaInitialState.value
-				.split('---')
-				.map((s) => s.trim())
-				.filter((s) => s);
-			initializeGlobalState(initialStrings, textareaInitialState.value);
-			isInitialized = true;
+// Initialize on mount
+$effect(() => {
+	if (!isInitialized) {
+		const initialStrings = textareaInitialState.value
+			.split('---')
+			.map((s) => s.trim())
+			.filter((s) => s);
+		initializeGlobalState(initialStrings, textareaInitialState.value);
+		isInitialized = true;
 
-			// If allCharactersText is empty (from persistence), use the initial value
-			if (!allCharactersText.trim()) {
-				allCharactersText = textareaInitialState.value;
-			}
-		}
-	});
-
-	// Keyboard event handler for attack multipliers - now targets hovered character
-	function selectAttackKeyboard(event: KeyboardEvent) {
-		const key = event.key;
-		if (globalState.hoveredCharacter) {
-			if (key >= '1' && key <= '9') {
-				const multiplier = parseInt(key);
-				globalState.selectedAttackTargets[globalState.hoveredCharacter.index] = {
-					character: globalState.hoveredCharacter,
-					timesAttacked: multiplier
-				};
-			} else if (key == '0') {
-				if (globalState.hoveredCharacter) {
-					delete globalState.selectedAttackTargets[globalState.hoveredCharacter.index];
-				}
-			} else if (event.key === 'Enter') {
-				executeAttack();
-			}
+		// If allCharactersText is empty (from persistence), use the initial value
+		if (!allCharactersText.trim()) {
+			allCharactersText = textareaInitialState.value;
 		}
 	}
+});
 
-	function handleKeyDown(event: KeyboardEvent) {
-		if (globalState.selectedAttack !== undefined) return selectAttackKeyboard(event);
-	}
-
-	// Update JSON input after health changes
-	function updateCharacterHealth(character: Character, newDamage: number) {
-		newDamage = Math.max(0, Math.min(character.numbers.max_hp.value, newDamage));
-
-		let unmodified = globalState.characterStrings[character.index!];
-		let searchStr = 'damage:';
-		let damageIndex = unmodified.indexOf(searchStr);
-		if (damageIndex === -1) {
-			searchStr = '"damage":';
-			damageIndex = unmodified.indexOf(searchStr);
-		}
-		if (damageIndex === -1) {
-			// Try space-separated format
-			searchStr = 'damage ';
-			damageIndex = unmodified.indexOf(searchStr);
-		}
-		if (damageIndex === -1) return;
-
-		// Search ahead for the first sequence of numeric digits, and get their start and end index
-		let afterDamage = unmodified.slice(damageIndex + searchStr.length);
-		let match = afterDamage.match(/-?\d+(\.\d+)?/);
-		if (!match) return;
-		let numStart = damageIndex + searchStr.length + match.index!;
-		let numEnd = numStart + match[0].length;
-		let modified = unmodified.slice(0, numStart) + newDamage.toString() + unmodified.slice(numEnd);
-
-		const newStrings = [...globalState.characterStrings];
-		newStrings[character.index!] = modified;
-		globalState.updateCharacterStrings(newStrings);
-		allCharactersText = newStrings.join('---\n');
-	}
-
-	// Handle target selection and attack execution
-	function executeAttack() {
-		if (globalState.selectedAttack === undefined) return;
-		for (const [_, targetData] of Object.entries(globalState.selectedAttackTargets) as [
-			string,
-			{ character: Character; timesAttacked: number }
-		][]) {
-			// Execute attack multiple times based on timesAttacked
-			let totalDamage = 0;
-			for (let i = 0; i < targetData.timesAttacked; i++) {
-				let attackResult = processAttack(
-					globalState.selectedAttack.attacker,
-					targetData.character,
-					globalState.selectedAttack.attack,
-					globalState.logMessage.bind(globalState)
-				);
-				totalDamage += attackResult.damageDealt;
+// Keyboard event handler for attack multipliers - now targets hovered character
+function selectAttackKeyboard(event: KeyboardEvent) {
+	const key = event.key;
+	if (globalState.hoveredCharacter) {
+		if (key >= '1' && key <= '9') {
+			const multiplier = parseInt(key);
+			globalState.selectedAttackTargets[globalState.hoveredCharacter.index] = {
+				character: globalState.hoveredCharacter,
+				timesAttacked: multiplier,
+			};
+		} else if (key == '0') {
+			if (globalState.hoveredCharacter) {
+				delete globalState.selectedAttackTargets[globalState.hoveredCharacter.index];
 			}
-			updateCharacterHealth(
-				targetData.character,
-				targetData.character.numbers.damage.value + totalDamage
-			);
-		}
-		globalState.clearAttackSelection();
-		tooltip?.hide();
-	}
-
-	function onAttackTargetSelected(target: Character, shiftKey: boolean) {
-		if (globalState.selectedAttack === undefined) return;
-
-		if (shiftKey) {
-			if (globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
-				delete globalState.selectedAttackTargets[target.index];
-			} else {
-				globalState.selectedAttackTargets[target.index] = { character: target, timesAttacked: 1 };
-			}
-		} else {
-			if (!globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
-				globalState.selectedAttackTargets[target.index] = { character: target, timesAttacked: 1 };
-			}
+		} else if (event.key === 'Enter') {
 			executeAttack();
 		}
 	}
+}
 
-	let tooltip: GlobalTooltip | undefined = $state(undefined);
+function handleKeyDown(event: KeyboardEvent) {
+	if (globalState.selectedAttack !== undefined) return selectAttackKeyboard(event);
+}
+
+// Update JSON input after health changes
+function updateCharacterHealth(character: Character, newDamage: number) {
+	newDamage = Math.max(0, Math.min(character.numbers.max_hp.value, newDamage));
+
+	let unmodified = globalState.characterStrings[character.index!];
+	let searchStr = 'damage:';
+	let damageIndex = unmodified.indexOf(searchStr);
+	if (damageIndex === -1) {
+		searchStr = '"damage":';
+		damageIndex = unmodified.indexOf(searchStr);
+	}
+	if (damageIndex === -1) {
+		// Try space-separated format
+		searchStr = 'damage ';
+		damageIndex = unmodified.indexOf(searchStr);
+	}
+	if (damageIndex === -1) return;
+
+	// Search ahead for the first sequence of numeric digits, and get their start and end index
+	let afterDamage = unmodified.slice(damageIndex + searchStr.length);
+	let match = afterDamage.match(/-?\d+(\.\d+)?/);
+	if (!match) return;
+	let numStart = damageIndex + searchStr.length + match.index!;
+	let numEnd = numStart + match[0].length;
+	let modified = unmodified.slice(0, numStart) + newDamage.toString() + unmodified.slice(numEnd);
+
+	const newStrings = [...globalState.characterStrings];
+	newStrings[character.index!] = modified;
+	globalState.updateCharacterStrings(newStrings);
+	allCharactersText = newStrings.join('---\n');
+}
+
+// Handle target selection and attack execution
+function executeAttack() {
+	if (globalState.selectedAttack === undefined) return;
+	for (const [_, targetData] of Object.entries(globalState.selectedAttackTargets) as [
+		string,
+		{ character: Character; timesAttacked: number },
+	][]) {
+		// Execute attack multiple times based on timesAttacked
+		let totalDamage = 0;
+		for (let i = 0; i < targetData.timesAttacked; i++) {
+			let attackResult = processAttack(
+				globalState.selectedAttack.attacker,
+				targetData.character,
+				globalState.selectedAttack.attack,
+				globalState.logMessage.bind(globalState),
+			);
+			totalDamage += attackResult.damageDealt;
+		}
+		updateCharacterHealth(
+			targetData.character,
+			targetData.character.numbers.damage.value + totalDamage,
+		);
+	}
+	globalState.clearAttackSelection();
+	tooltip?.hide();
+}
+
+function onAttackTargetSelected(target: Character, shiftKey: boolean) {
+	if (globalState.selectedAttack === undefined) return;
+
+	if (shiftKey) {
+		if (globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
+			delete globalState.selectedAttackTargets[target.index];
+		} else {
+			globalState.selectedAttackTargets[target.index] = { character: target, timesAttacked: 1 };
+		}
+	} else {
+		if (!globalState.selectedAttackTargets.hasOwnProperty(target.index)) {
+			globalState.selectedAttackTargets[target.index] = { character: target, timesAttacked: 1 };
+		}
+		executeAttack();
+	}
+}
+
+let tooltip: GlobalTooltip | undefined = $state(undefined);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

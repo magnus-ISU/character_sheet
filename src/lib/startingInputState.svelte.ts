@@ -3,5 +3,5 @@ export let textareaInitialState = $state({
 ---
 name Alice, max_hp 15, damage 0, ac 12, dex 2, bow {roll dex vs ac, hit 1d8 + dex} a trusty longbow
 ---
-name Bob, max_hp 8, damage 0, ac 11, int 3, fireball {roll int vs dex, hit 3d6 fire} magical flames`
+name Bob, max_hp 8, damage 0, ac 11, int 3, fireball {roll int vs dex, hit 3d6 fire} magical flames`,
 });

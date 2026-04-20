@@ -1,436 +1,436 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+import { onMount, onDestroy } from 'svelte';
 
-	// Props with defaults
-	let {
-		value = $bindable(''),
-		placeholder = 'Enter your text here...',
-		storageKey = 'persistent-textarea',
-		storagePrefix = 'svelte-persistent-',
-		class: className = '',
-		...restProps
-	} = $props();
+// Props with defaults
+let {
+	value = $bindable(''),
+	placeholder = 'Enter your text here...',
+	storageKey = 'persistent-textarea',
+	storagePrefix = 'svelte-persistent-',
+	class: className = '',
+	...restProps
+} = $props();
 
-	// Create full storage key with prefix
-	const fullStorageKey = storagePrefix + storageKey;
-	const tokenStorageKey = 'svelte-persistent-dropbox-token';
+// Create full storage key with prefix
+const fullStorageKey = storagePrefix + storageKey;
+const tokenStorageKey = 'svelte-persistent-dropbox-token';
 
-	let lastValue = $state(value);
-	let isLoaded = $state(false);
+let lastValue = $state(value);
+let isLoaded = $state(false);
 
-	let hasLoadedRemoteValue = $state(false);
-	let dbx = $state(null);
-	let accessToken = $state('');
-	let saveTimeout: number | null = $state(null);
-	let lastSyncTime: Date | null = $state(null);
-	let syncStatus = $state(
-		"Not connected - visit https://www.dropbox.com/developers/apps/ and paste your app's access token"
-	);
-	let showDropboxControls = $derived(accessToken === '');
-	let isDebouncing = $derived(saveTimeout !== null);
+let hasLoadedRemoteValue = $state(false);
+let dbx = $state(null);
+let accessToken = $state('');
+let saveTimeout: number | null = $state(null);
+let lastSyncTime: Date | null = $state(null);
+let syncStatus = $state(
+	"Not connected - visit https://www.dropbox.com/developers/apps/ and paste your app's access token",
+);
+let showDropboxControls = $derived(accessToken === '');
+let isDebouncing = $derived(saveTimeout !== null);
 
-	// Long polling state
-	let longPollController: AbortController | null = $state(null);
-	let cursor = $state(null);
-	let isLongPolling = $state(false);
+// Long polling state
+let longPollController: AbortController | null = $state(null);
+let cursor = $state(null);
+let isLongPolling = $state(false);
 
-	// User activity tracking
-	let lastUserActivity = $state(Date.now());
-	let isUserTyping = $state(false);
-	let typingTimeout: number | null = $state(null);
+// User activity tracking
+let lastUserActivity = $state(Date.now());
+let isUserTyping = $state(false);
+let typingTimeout: number | null = $state(null);
 
-	// Track last content sent to Dropbox to avoid processing our own updates
-	let lastSentToDropbox = $state('');
+// Track last content sent to Dropbox to avoid processing our own updates
+let lastSentToDropbox = $state('');
 
-	// Dropbox file path based on storage key
-	const dropboxPath = `/${fullStorageKey}`;
+// Dropbox file path based on storage key
+const dropboxPath = `/${fullStorageKey}`;
 
-	function updateValue(newValue: string) {
-		value = newValue;
-		lastValue = newValue;
+function updateValue(newValue: string) {
+	value = newValue;
+	lastValue = newValue;
+}
+
+// Track user typing activity
+function trackUserActivity() {
+	lastUserActivity = Date.now();
+	isUserTyping = true;
+
+	// Clear existing timeout
+	if (typingTimeout) {
+		clearTimeout(typingTimeout);
 	}
 
-	// Track user typing activity
-	function trackUserActivity() {
-		lastUserActivity = Date.now();
-		isUserTyping = true;
+	// Consider user stopped typing after 2 seconds of inactivity
+	typingTimeout = setTimeout(() => {
+		isUserTyping = false;
+	}, 2000);
+}
 
-		// Clear existing timeout
-		if (typingTimeout) {
-			clearTimeout(typingTimeout);
+// Load value from localStorage on mount (localStorage takes precedence)
+onMount(async () => {
+	try {
+		const saved = localStorage.getItem(fullStorageKey);
+		if (saved !== null) {
+			updateValue(saved);
 		}
-
-		// Consider user stopped typing after 2 seconds of inactivity
-		typingTimeout = setTimeout(() => {
-			isUserTyping = false;
-		}, 2000);
+	} catch (error) {
+		console.warn('Failed to load from localStorage:', error);
 	}
 
-	// Load value from localStorage on mount (localStorage takes precedence)
-	onMount(async () => {
-		try {
-			const saved = localStorage.getItem(fullStorageKey);
-			if (saved !== null) {
-				updateValue(saved);
-			}
-		} catch (error) {
-			console.warn('Failed to load from localStorage:', error);
+	// Try to load saved access token
+	try {
+		const savedToken = localStorage.getItem(tokenStorageKey);
+		if (savedToken) {
+			accessToken = savedToken;
 		}
+	} catch (error) {
+		console.warn('Failed to load access token from localStorage:', error);
+	}
 
-		// Try to load saved access token
-		try {
-			const savedToken = localStorage.getItem(tokenStorageKey);
-			if (savedToken) {
-				accessToken = savedToken;
-			}
-		} catch (error) {
-			console.warn('Failed to load access token from localStorage:', error);
-		}
+	// Try to load Dropbox SDK
+	if (typeof window !== 'undefined' && !(window as any).Dropbox) {
+		await loadDropboxSDK();
+	}
 
-		// Try to load Dropbox SDK
-		if (typeof window !== 'undefined' && !(window as any).Dropbox) {
-			await loadDropboxSDK();
-		}
+	isLoaded = true;
 
-		isLoaded = true;
+	// Auto-connect if we have a saved token
+	if (accessToken && !dbx) {
+		connectToDropbox();
+	}
+});
 
-		// Auto-connect if we have a saved token
-		if (accessToken && !dbx) {
-			connectToDropbox();
-		}
+// Clean up on destroy
+onDestroy(() => {
+	if (saveTimeout) {
+		clearTimeout(saveTimeout);
+	}
+	if (typingTimeout) {
+		clearTimeout(typingTimeout);
+	}
+	if (longPollController) {
+		longPollController.abort();
+	}
+});
+
+// Load Dropbox SDK dynamically
+async function loadDropboxSDK() {
+	return new Promise((resolve, reject) => {
+		const script = document.createElement('script');
+		script.src = 'https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js';
+		script.onload = resolve;
+		script.onerror = reject;
+		document.head.appendChild(script);
 	});
+}
 
-	// Clean up on destroy
-	onDestroy(() => {
-		if (saveTimeout) {
-			clearTimeout(saveTimeout);
-		}
-		if (typingTimeout) {
-			clearTimeout(typingTimeout);
-		}
-		if (longPollController) {
-			longPollController.abort();
-		}
-	});
+// Connect to Dropbox
+async function connectToDropbox() {
+	if (!accessToken.trim()) {
+		syncStatus = 'Please enter access token';
+		return;
+	}
 
-	// Load Dropbox SDK dynamically
-	async function loadDropboxSDK() {
-		return new Promise((resolve, reject) => {
-			const script = document.createElement('script');
-			script.src = 'https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/10.34.0/Dropbox-sdk.min.js';
-			script.onload = resolve;
-			script.onerror = reject;
-			document.head.appendChild(script);
+	syncStatus = 'Connecting...';
+
+	try {
+		dbx = new (window as any).Dropbox.Dropbox({ accessToken: accessToken.trim() });
+
+		// Test connection
+		const response = await (dbx as any).usersGetCurrentAccount();
+		syncStatus = `Connected as ${response.result.name.display_name}`;
+
+		// Save token to localStorage
+		try {
+			localStorage.setItem(tokenStorageKey, accessToken.trim());
+		} catch (error) {
+			console.warn('Failed to save token to localStorage:', error);
+		}
+
+		// Load initial content from Dropbox and get cursor
+		await initializeFromDropbox();
+
+		// Start long polling for changes
+		startLongPolling();
+	} catch (error) {
+		console.error('Dropbox connection failed:', error);
+		syncStatus = 'Connection failed - clearing token';
+
+		// Clear saved token on connection failure
+		try {
+			localStorage.removeItem(tokenStorageKey);
+		} catch (e) {
+			console.warn('Failed to clear token from localStorage:', e);
+		}
+
+		dbx = null;
+		accessToken = '';
+
+		// Clear the token after a short delay to show the error
+		setTimeout(() => {
+			syncStatus =
+				"Not connected - visit https://www.dropbox.com/developers/apps/ and paste your app's access token";
+		}, 3000);
+	}
+}
+
+// Initialize from Dropbox and get initial cursor
+async function initializeFromDropbox() {
+	if (!dbx) return;
+
+	try {
+		// First, try to get the folder cursor
+		const folderResponse = await (dbx as any).filesListFolder({
+			path: '',
+			recursive: false,
+			include_deleted: false,
 		});
-	}
 
-	// Connect to Dropbox
-	async function connectToDropbox() {
-		if (!accessToken.trim()) {
-			syncStatus = 'Please enter access token';
-			return;
+		cursor = folderResponse.result.cursor;
+
+		// Check if our file exists in the folder listing
+		const ourFile = folderResponse.result.entries.find(
+			(entry: any) => entry.path_lower === dropboxPath.toLowerCase(),
+		);
+
+		if (ourFile) {
+			// File exists, load its content
+			await loadFromDropbox();
+		} else {
+			syncStatus = 'File not found in Dropbox, will create on next save';
+			hasLoadedRemoteValue = true;
 		}
+	} catch (error: any) {
+		console.error('Failed to initialize from Dropbox:', error);
+		syncStatus = 'Initialization error';
+	}
+}
 
-		syncStatus = 'Connecting...';
+// Load content from Dropbox
+async function loadFromDropbox() {
+	if (!dbx || isDebouncing) return;
 
-		try {
-			dbx = new (window as any).Dropbox.Dropbox({ accessToken: accessToken.trim() });
+	try {
+		const response = await (dbx as any).filesDownload({ path: dropboxPath });
+		const fileContent = await response.result.fileBlob.text();
 
-			// Test connection
-			const response = await (dbx as any).usersGetCurrentAccount();
-			syncStatus = `Connected as ${response.result.name.display_name}`;
-
-			// Save token to localStorage
-			try {
-				localStorage.setItem(tokenStorageKey, accessToken.trim());
-			} catch (error) {
-				console.warn('Failed to save token to localStorage:', error);
+		// Smart conflict resolution: only update if user isn't actively typing
+		// or if this is the initial load
+		if (!hasLoadedRemoteValue) {
+			// Initial load - always update
+			updateValue(fileContent);
+			lastSentToDropbox = fileContent; // Track this as our baseline
+			lastSyncTime = new Date();
+			syncStatus = `Loaded from Dropbox (${lastSyncTime.toLocaleTimeString()})`;
+			hasLoadedRemoteValue = true;
+		} else if (fileContent !== value) {
+			// Check if this is our own update that we sent to Dropbox
+			if (fileContent === lastSentToDropbox) {
+				// This is our own update echoing back - ignore it
+				lastSyncTime = new Date();
+				syncStatus = `Confirmed save (${lastSyncTime.toLocaleTimeString()})`;
+				return;
 			}
 
-			// Load initial content from Dropbox and get cursor
-			await initializeFromDropbox();
+			// Content has genuinely changed from another source
+			if (isUserTyping || Date.now() - lastUserActivity < 3000) {
+				// User is actively typing or recently typed - don't interrupt
+				syncStatus = `Remote changes detected (waiting for typing to finish)`;
+			} else {
+				// Safe to update - user isn't typing, and this is a real external change
+				console.log('🔄 Textarea content overwritten by external update');
+				console.log('📝 Previous local content:', value);
+				console.log('📥 New external content:', fileContent);
+				console.log('⚠️  If this was a mistake, copy the "Previous local content" above');
 
-			// Start long polling for changes
-			startLongPolling();
-		} catch (error) {
-			console.error('Dropbox connection failed:', error);
-			syncStatus = 'Connection failed - clearing token';
-
-			// Clear saved token on connection failure
-			try {
-				localStorage.removeItem(tokenStorageKey);
-			} catch (e) {
-				console.warn('Failed to clear token from localStorage:', e);
+				updateValue(fileContent);
+				lastSentToDropbox = fileContent; // Update our tracking
+				lastSyncTime = new Date();
+				syncStatus = `Updated from Dropbox (${lastSyncTime.toLocaleTimeString()})`;
 			}
-
-			dbx = null;
-			accessToken = '';
-
-			// Clear the token after a short delay to show the error
-			setTimeout(() => {
-				syncStatus =
-					"Not connected - visit https://www.dropbox.com/developers/apps/ and paste your app's access token";
-			}, 3000);
+		} else {
+			lastSyncTime = new Date();
+			syncStatus = `No changes since (${lastSyncTime.toLocaleTimeString()})`;
+		}
+	} catch (error: any) {
+		if (error.status === 409) {
+			syncStatus = 'File not found in Dropbox, will create on next save';
+			hasLoadedRemoteValue = true;
+		} else {
+			console.error('Failed to load from Dropbox:', error);
+			syncStatus = 'Sync error (load)';
 		}
 	}
+}
 
-	// Initialize from Dropbox and get initial cursor
-	async function initializeFromDropbox() {
-		if (!dbx) return;
+// Start long polling for changes
+async function startLongPolling() {
+	if (!dbx || !cursor || isLongPolling) return;
 
+	isLongPolling = true;
+
+	while (dbx && cursor && isLongPolling) {
 		try {
-			// First, try to get the folder cursor
-			const folderResponse = await (dbx as any).filesListFolder({
-				path: '',
-				recursive: false,
-				include_deleted: false
+			// Abort previous controller if it exists
+			if (longPollController) {
+				longPollController.abort();
+			}
+
+			// Create new abort controller for this long poll request
+			longPollController = new AbortController();
+
+			// Long poll for changes (timeout after 30 seconds)
+			const longPollResponse = await (dbx as any).filesListFolderLongpoll({
+				cursor: cursor,
+				timeout: 30,
 			});
 
-			cursor = folderResponse.result.cursor;
-
-			// Check if our file exists in the folder listing
-			const ourFile = folderResponse.result.entries.find(
-				(entry: any) => entry.path_lower === dropboxPath.toLowerCase()
-			);
-
-			if (ourFile) {
-				// File exists, load its content
-				await loadFromDropbox();
-			} else {
-				syncStatus = 'File not found in Dropbox, will create on next save';
-				hasLoadedRemoteValue = true;
-			}
-		} catch (error: any) {
-			console.error('Failed to initialize from Dropbox:', error);
-			syncStatus = 'Initialization error';
-		}
-	}
-
-	// Load content from Dropbox
-	async function loadFromDropbox() {
-		if (!dbx || isDebouncing) return;
-
-		try {
-			const response = await (dbx as any).filesDownload({ path: dropboxPath });
-			const fileContent = await response.result.fileBlob.text();
-
-			// Smart conflict resolution: only update if user isn't actively typing
-			// or if this is the initial load
-			if (!hasLoadedRemoteValue) {
-				// Initial load - always update
-				updateValue(fileContent);
-				lastSentToDropbox = fileContent; // Track this as our baseline
-				lastSyncTime = new Date();
-				syncStatus = `Loaded from Dropbox (${lastSyncTime.toLocaleTimeString()})`;
-				hasLoadedRemoteValue = true;
-			} else if (fileContent !== value) {
-				// Check if this is our own update that we sent to Dropbox
-				if (fileContent === lastSentToDropbox) {
-					// This is our own update echoing back - ignore it
-					lastSyncTime = new Date();
-					syncStatus = `Confirmed save (${lastSyncTime.toLocaleTimeString()})`;
-					return;
-				}
-
-				// Content has genuinely changed from another source
-				if (isUserTyping || Date.now() - lastUserActivity < 3000) {
-					// User is actively typing or recently typed - don't interrupt
-					syncStatus = `Remote changes detected (waiting for typing to finish)`;
-				} else {
-					// Safe to update - user isn't typing, and this is a real external change
-					console.log('🔄 Textarea content overwritten by external update');
-					console.log('📝 Previous local content:', value);
-					console.log('📥 New external content:', fileContent);
-					console.log('⚠️  If this was a mistake, copy the "Previous local content" above');
-
-					updateValue(fileContent);
-					lastSentToDropbox = fileContent; // Update our tracking
-					lastSyncTime = new Date();
-					syncStatus = `Updated from Dropbox (${lastSyncTime.toLocaleTimeString()})`;
-				}
-			} else {
-				lastSyncTime = new Date();
-				syncStatus = `No changes since (${lastSyncTime.toLocaleTimeString()})`;
-			}
-		} catch (error: any) {
-			if (error.status === 409) {
-				syncStatus = 'File not found in Dropbox, will create on next save';
-				hasLoadedRemoteValue = true;
-			} else {
-				console.error('Failed to load from Dropbox:', error);
-				syncStatus = 'Sync error (load)';
-			}
-		}
-	}
-
-	// Start long polling for changes
-	async function startLongPolling() {
-		if (!dbx || !cursor || isLongPolling) return;
-
-		isLongPolling = true;
-
-		while (dbx && cursor && isLongPolling) {
-			try {
-				// Abort previous controller if it exists
-				if (longPollController) {
-					longPollController.abort();
-				}
-
-				// Create new abort controller for this long poll request
-				longPollController = new AbortController();
-
-				// Long poll for changes (timeout after 30 seconds)
-				const longPollResponse = await (dbx as any).filesListFolderLongpoll({
+			if (longPollResponse.result.changes) {
+				// Changes detected, get the actual changes
+				const changesResponse = await (dbx as any).filesListFolderContinue({
 					cursor: cursor,
-					timeout: 30
 				});
 
-				if (longPollResponse.result.changes) {
-					// Changes detected, get the actual changes
-					const changesResponse = await (dbx as any).filesListFolderContinue({
-						cursor: cursor
-					});
+				// Update cursor for next long poll
+				cursor = changesResponse.result.cursor;
 
-					// Update cursor for next long poll
-					cursor = changesResponse.result.cursor;
+				// Check if our file was changed
+				const ourFileChanged = changesResponse.result.entries.some(
+					(entry: any) =>
+						entry.path_lower === dropboxPath.toLowerCase() && entry['.tag'] !== 'deleted',
+				);
 
-					// Check if our file was changed
-					const ourFileChanged = changesResponse.result.entries.some(
-						(entry: any) =>
-							entry.path_lower === dropboxPath.toLowerCase() && entry['.tag'] !== 'deleted'
-					);
-
-					if (ourFileChanged) {
-						await loadFromDropbox();
-					}
-				}
-
-				// Small delay before next long poll to prevent tight loops
-				await new Promise((resolve) => setTimeout(resolve, 100));
-			} catch (error: any) {
-				if (error.name === 'AbortError') {
-					// Request was aborted, this is normal
-					break;
-				}
-
-				console.error('Long polling error:', error);
-
-				// On error, wait a bit before retrying
-				await new Promise((resolve) => setTimeout(resolve, 5000));
-
-				// Try to reinitialize cursor
-				try {
-					const folderResponse = await (dbx as any).filesListFolder({
-						path: '',
-						recursive: false,
-						include_deleted: false
-					});
-					cursor = folderResponse.result.cursor;
-				} catch (reinitError) {
-					console.error('Failed to reinitialize cursor:', reinitError);
-					break;
+				if (ourFileChanged) {
+					await loadFromDropbox();
 				}
 			}
-		}
 
-		isLongPolling = false;
-	}
+			// Small delay before next long poll to prevent tight loops
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		} catch (error: any) {
+			if (error.name === 'AbortError') {
+				// Request was aborted, this is normal
+				break;
+			}
 
-	// Save content to Dropbox (debounced)
-	async function saveToDropbox() {
-		saveTimeout = null;
-		if (!hasLoadedRemoteValue) return;
-		if (!dbx) return;
+			console.error('Long polling error:', error);
 
-		try {
-			await (dbx as any).filesUpload({
-				path: dropboxPath,
-				contents: value,
-				mode: 'overwrite',
-				autorename: false
-			});
+			// On error, wait a bit before retrying
+			await new Promise((resolve) => setTimeout(resolve, 5000));
 
-			// Track what we just sent to Dropbox
-			lastSentToDropbox = value;
-
-			lastSyncTime = new Date();
-			syncStatus = `Saved to Dropbox (${lastSyncTime.toLocaleTimeString()})`;
-
-			// Update cursor after successful save
+			// Try to reinitialize cursor
 			try {
 				const folderResponse = await (dbx as any).filesListFolder({
 					path: '',
 					recursive: false,
-					include_deleted: false
+					include_deleted: false,
 				});
 				cursor = folderResponse.result.cursor;
-			} catch (error) {
-				console.warn('Failed to update cursor after save:', error);
+			} catch (reinitError) {
+				console.error('Failed to reinitialize cursor:', reinitError);
+				break;
 			}
+		}
+	}
 
-			// Restart long polling if it's not running
-			if (!isLongPolling) {
-				startLongPolling();
-			}
+	isLongPolling = false;
+}
+
+// Save content to Dropbox (debounced)
+async function saveToDropbox() {
+	saveTimeout = null;
+	if (!hasLoadedRemoteValue) return;
+	if (!dbx) return;
+
+	try {
+		await (dbx as any).filesUpload({
+			path: dropboxPath,
+			contents: value,
+			mode: 'overwrite',
+			autorename: false,
+		});
+
+		// Track what we just sent to Dropbox
+		lastSentToDropbox = value;
+
+		lastSyncTime = new Date();
+		syncStatus = `Saved to Dropbox (${lastSyncTime.toLocaleTimeString()})`;
+
+		// Update cursor after successful save
+		try {
+			const folderResponse = await (dbx as any).filesListFolder({
+				path: '',
+				recursive: false,
+				include_deleted: false,
+			});
+			cursor = folderResponse.result.cursor;
 		} catch (error) {
-			console.error('Failed to save to Dropbox:', error);
-			syncStatus = 'Sync error (save)';
-		}
-	}
-
-	// Handle clicking on sync status when not connected
-	function handleSyncStatusClick() {
-		if (!dbx && syncStatus.includes('developers/apps')) {
-			window.open('https://www.dropbox.com/developers/apps/', '_blank');
-		}
-	}
-
-	// Handle access token input
-	function handleTokenInput(event: any) {
-		accessToken = event.target.value;
-		connectToDropbox();
-	}
-
-	// Debounced save to localStorage and Dropbox
-	function debouncedSave() {
-		if (value === lastValue) return;
-		lastValue = value;
-
-		// Clear existing timeout
-		if (saveTimeout) {
-			clearTimeout(saveTimeout);
+			console.warn('Failed to update cursor after save:', error);
 		}
 
-		// Set new timeout for 750ms before saving
-		saveTimeout = setTimeout(async () => {
-			if (dbx) {
-				await saveToDropbox();
-			}
-		}, 750);
-	}
-
-	// Handle textarea input to track user activity
-	function handleTextareaInput(event: any) {
-		trackUserActivity();
-		value = event.target.value;
-	}
-
-	// Save to localStorage whenever value changes
-	$effect(() => {
-		if (isLoaded) {
-			if (lastValue === value) return;
-			try {
-				localStorage.setItem(fullStorageKey, value);
-			} catch (error) {
-				console.warn('Failed to save to localStorage:', error);
-			}
-
-			// Trigger debounced save to Dropbox
-			if (dbx) {
-				debouncedSave();
-			}
+		// Restart long polling if it's not running
+		if (!isLongPolling) {
+			startLongPolling();
 		}
-	});
+	} catch (error) {
+		console.error('Failed to save to Dropbox:', error);
+		syncStatus = 'Sync error (save)';
+	}
+}
+
+// Handle clicking on sync status when not connected
+function handleSyncStatusClick() {
+	if (!dbx && syncStatus.includes('developers/apps')) {
+		window.open('https://www.dropbox.com/developers/apps/', '_blank');
+	}
+}
+
+// Handle access token input
+function handleTokenInput(event: any) {
+	accessToken = event.target.value;
+	connectToDropbox();
+}
+
+// Debounced save to localStorage and Dropbox
+function debouncedSave() {
+	if (value === lastValue) return;
+	lastValue = value;
+
+	// Clear existing timeout
+	if (saveTimeout) {
+		clearTimeout(saveTimeout);
+	}
+
+	// Set new timeout for 750ms before saving
+	saveTimeout = setTimeout(async () => {
+		if (dbx) {
+			await saveToDropbox();
+		}
+	}, 750);
+}
+
+// Handle textarea input to track user activity
+function handleTextareaInput(event: any) {
+	trackUserActivity();
+	value = event.target.value;
+}
+
+// Save to localStorage whenever value changes
+$effect(() => {
+	if (isLoaded) {
+		if (lastValue === value) return;
+		try {
+			localStorage.setItem(fullStorageKey, value);
+		} catch (error) {
+			console.warn('Failed to save to localStorage:', error);
+		}
+
+		// Trigger debounced save to Dropbox
+		if (dbx) {
+			debouncedSave();
+		}
+	}
+});
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->

@@ -1,62 +1,62 @@
 <script lang="ts">
-	import { scale } from 'svelte/transition';
-	import { quintOut } from 'svelte/easing';
+import { scale } from 'svelte/transition';
+import { quintOut } from 'svelte/easing';
 
-	// Exported state - minimal interface
-	let {
-		visible = $bindable(false),
-		content = $bindable<TooltipContent>({ name: '', description: '', type: 'feature', chips: [] })
-	} = $props();
+// Exported state - minimal interface
+let {
+	visible = $bindable(false),
+	content = $bindable<TooltipContent>({ name: '', description: '', type: 'feature', chips: [] }),
+} = $props();
 
-	// Internal state
-	let tooltipElement: HTMLDivElement | undefined = $state(undefined);
-	let showTimeout: null | number = $state(null);
-	let isShaking = $state(false);
+// Internal state
+let tooltipElement: HTMLDivElement | undefined = $state(undefined);
+let showTimeout: null | number = $state(null);
+let isShaking = $state(false);
 
-	const SHOW_DELAY = 0;
+const SHOW_DELAY = 0;
 
-	// Public methods exposed via $bindable
-	export function show(tooltip: TooltipContent) {
-		// Clear any pending timeout
-		if (showTimeout) {
-			clearTimeout(showTimeout);
-		}
-
-		showTimeout = setTimeout(() => {
-			content = tooltip;
-			visible = true;
-		}, SHOW_DELAY);
-
-		isShaking = false;
+// Public methods exposed via $bindable
+export function show(tooltip: TooltipContent) {
+	// Clear any pending timeout
+	if (showTimeout) {
+		clearTimeout(showTimeout);
 	}
 
-	export function hide() {
-		visible = false;
-		if (showTimeout) {
-			clearTimeout(showTimeout);
-			showTimeout = null;
-		}
-	}
+	showTimeout = setTimeout(() => {
+		content = tooltip;
+		visible = true;
+	}, SHOW_DELAY);
 
-	export function setShaking(shaking: boolean) {
-		isShaking = shaking;
-	}
+	isShaking = false;
+}
 
-	// Dynamic gradient based on tooltip type
-	function getGradientClass(type: 'feature' | 'character' | 'skill' | 'item') {
-		switch (type) {
-			case 'feature':
-				return 'gradient-feature';
-			case 'character':
-				return 'gradient-character';
-			case 'skill':
-				return 'gradient-skill';
-			case 'item':
-				return 'gradient-item';
-			default:
-				return 'gradient-default';
-		}
+export function hide() {
+	visible = false;
+	if (showTimeout) {
+		clearTimeout(showTimeout);
+		showTimeout = null;
 	}
+}
+
+export function setShaking(shaking: boolean) {
+	isShaking = shaking;
+}
+
+// Dynamic gradient based on tooltip type
+function getGradientClass(type: 'feature' | 'character' | 'skill' | 'item') {
+	switch (type) {
+		case 'feature':
+			return 'gradient-feature';
+		case 'character':
+			return 'gradient-character';
+		case 'skill':
+			return 'gradient-skill';
+		case 'item':
+			return 'gradient-item';
+		default:
+			return 'gradient-default';
+	}
+}
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->

@@ -1,167 +1,167 @@
 <script lang="ts">
-	import { rollDiceExpression } from './dice.svelte';
-	import GlobalTooltip from './GlobalTooltip.svelte';
+import { rollDiceExpression } from './dice.svelte';
+import GlobalTooltip from './GlobalTooltip.svelte';
 
-	let {
-		character,
-		logMessage,
-		updateCharacterHealth,
-		tooltip,
-		selectedAttack = $bindable(undefined),
-		selectedAttackTargets = $bindable({}),
-		onAttackTargetSelected,
-		onCharacterHover
-	}: {
-		character: Character;
-		logMessage: (m: string, t: LogType) => void;
-		updateCharacterHealth: Function;
-		tooltip: GlobalTooltip | undefined;
-		selectedAttack: SelectingAttack | undefined;
-		selectedAttackTargets: Record<number, { character: Character; timesAttacked: number }>;
-		onAttackTargetSelected: Function;
-		onCharacterHover: Function;
-	} = $props();
+let {
+	character,
+	logMessage,
+	updateCharacterHealth,
+	tooltip,
+	selectedAttack = $bindable(undefined),
+	selectedAttackTargets = $bindable({}),
+	onAttackTargetSelected,
+	onCharacterHover,
+}: {
+	character: Character;
+	logMessage: (m: string, t: LogType) => void;
+	updateCharacterHealth: Function;
+	tooltip: GlobalTooltip | undefined;
+	selectedAttack: SelectingAttack | undefined;
+	selectedAttackTargets: Record<number, { character: Character; timesAttacked: number }>;
+	onAttackTargetSelected: Function;
+	onCharacterHover: Function;
+} = $props();
 
-	let max_hp = $derived(character.numbers.max_hp.value);
-	let damage = $derived(character.numbers.damage.value);
-	let currentHp = $derived(Math.max(0, max_hp - damage));
-	let percentage = $derived((currentHp / max_hp) * 100);
-	let timesSelectedForAttack: number = $derived(
-		selectedAttackTargets[character.index]?.timesAttacked || 0
-	);
-	let features = $derived(Object.entries(character.features));
+let max_hp = $derived(character.numbers.max_hp.value);
+let damage = $derived(character.numbers.damage.value);
+let currentHp = $derived(Math.max(0, max_hp - damage));
+let percentage = $derived((currentHp / max_hp) * 100);
+let timesSelectedForAttack: number = $derived(
+	selectedAttackTargets[character.index]?.timesAttacked || 0,
+);
+let features = $derived(Object.entries(character.features));
 
-	function rollDie(diceSize: number, characterName: string, statName: string, modifier: number) {
-		const roll = Math.floor(Math.random() * diceSize) + 1;
-		const total = roll + (modifier || 0);
-		let type: LogType = 'roll';
-		if (roll === 20) type = 'critical-hit';
-		else if (roll === 1) type = 'critical-miss';
-		const message = `${characterName} rolled ${statName}: d20(${roll}) + ${modifier} = ${total}`;
-		logMessage(message, type);
-	}
+function rollDie(diceSize: number, characterName: string, statName: string, modifier: number) {
+	const roll = Math.floor(Math.random() * diceSize) + 1;
+	const total = roll + (modifier || 0);
+	let type: LogType = 'roll';
+	if (roll === 20) type = 'critical-hit';
+	else if (roll === 1) type = 'critical-miss';
+	const message = `${characterName} rolled ${statName}: d20(${roll}) + ${modifier} = ${total}`;
+	logMessage(message, type);
+}
 
-	let statsToRender: RenderedStat[][] = $derived(
-		(() => {
-			// Parse the main stats to render
-			let rowToStatsToRender: Record<number, RenderedStat[]> = {};
-			let lastRowToRender: RenderedStat[] = [];
-			let topLevelStats: Record<string, RenderedStat> = {};
+let statsToRender: RenderedStat[][] = $derived(
+	(() => {
+		// Parse the main stats to render
+		let rowToStatsToRender: Record<number, RenderedStat[]> = {};
+		let lastRowToRender: RenderedStat[] = [];
+		let topLevelStats: Record<string, RenderedStat> = {};
 
-			function addStat(stat: NumberStat) {
-				if (stat.name === 'max_hp') return;
-				if (stat.name === 'damage') return;
-				let renderedStat: RenderedStat = { name: stat.name, stat: stat, children: [] };
-				if ('' === stat.parentName) {
-					topLevelStats[stat.name] = renderedStat;
-				}
-				if (stat.row !== undefined) {
-					rowToStatsToRender[stat.row] || (rowToStatsToRender[stat.row] = []);
-					rowToStatsToRender[stat.row].push(renderedStat);
+		function addStat(stat: NumberStat) {
+			if (stat.name === 'max_hp') return;
+			if (stat.name === 'damage') return;
+			let renderedStat: RenderedStat = { name: stat.name, stat: stat, children: [] };
+			if ('' === stat.parentName) {
+				topLevelStats[stat.name] = renderedStat;
+			}
+			if (stat.row !== undefined) {
+				rowToStatsToRender[stat.row] || (rowToStatsToRender[stat.row] = []);
+				rowToStatsToRender[stat.row].push(renderedStat);
+			} else {
+				lastRowToRender.push(renderedStat);
+			}
+		}
+
+		for (const [_, numberStat] of Object.entries(character.numbers)) {
+			addStat(numberStat);
+		}
+
+		function removeOrRenameChildren(row: RenderedStat[]) {
+			for (let i = 0; i < row.length; i++) {
+				let stat = row[i];
+				if (stat.stat.parentName === '') continue;
+				if (topLevelStats.hasOwnProperty(stat.stat.parentName)) {
+					topLevelStats[stat.stat.parentName]!.children.push(stat.name);
+					row.splice(i--, 1);
 				} else {
-					lastRowToRender.push(renderedStat);
+					stat.name = stat.stat.parentName;
 				}
 			}
-
-			for (const [_, numberStat] of Object.entries(character.numbers)) {
-				addStat(numberStat);
-			}
-
-			function removeOrRenameChildren(row: RenderedStat[]) {
-				for (let i = 0; i < row.length; i++) {
-					let stat = row[i];
-					if (stat.stat.parentName === '') continue;
-					if (topLevelStats.hasOwnProperty(stat.stat.parentName)) {
-						topLevelStats[stat.stat.parentName]!.children.push(stat.name);
-						row.splice(i--, 1);
-					} else {
-						stat.name = stat.stat.parentName;
-					}
-				}
-			}
-
-			// Remove children stats to render that have parents. Otherwise, rename them to their parents name
-			for (const [_, row] of Object.entries(rowToStatsToRender)) {
-				removeOrRenameChildren(row);
-			}
-			removeOrRenameChildren(lastRowToRender);
-
-			return [...Object.values(rowToStatsToRender), lastRowToRender];
-		})()
-	);
-
-	function handleHealthUpdate(event: any) {
-		if (event.key === 'Enter') {
-			const value = event.target.value.trim();
-			if (!value) return;
-			let newDamage;
-			if (value.startsWith('+')) {
-				const heal = parseFloat(value.substring(1));
-				newDamage = damage - heal;
-			} else if (value.startsWith('-')) {
-				const damageAdd = parseFloat(value.substring(1));
-				newDamage = damage + damageAdd;
-			} else {
-				const currentHpInput = parseFloat(value);
-				newDamage = max_hp - currentHpInput;
-			}
-			updateCharacterHealth(character, newDamage);
-			event.target.value = '';
 		}
-	}
 
-	function onClickFeature(feature: Feature, e: MouseEvent) {
-		e.preventDefault();
-		e.stopImmediatePropagation();
-		if (feature.roll_against !== '') {
-			// Attack
-			selectedAttack = { attacker: character, attack: feature };
-			tooltip?.setShaking(true);
-			return;
+		// Remove children stats to render that have parents. Otherwise, rename them to their parents name
+		for (const [_, row] of Object.entries(rowToStatsToRender)) {
+			removeOrRenameChildren(row);
 		}
-		if (feature.roll) {
-			// Check if this is a 5e attack (starts with +)
-			const is5eAttack = feature.roll.startsWith('+');
-			let rolledStr = '';
-			let d20Result = 0;
-			let modifierValue = 0;
+		removeOrRenameChildren(lastRowToRender);
 
-			if (is5eAttack) {
-				// Roll d20 separately for 5e attacks
-				d20Result = Math.floor(Math.random() * 20) + 1;
-				// Remove the + and just pass the modifiers to the dice roller
-				const modifiers = feature.roll.substring(1);
-				modifierValue = rollDiceExpression(character, modifiers);
-				rolledStr = `${d20Result} + ${modifierValue} = ${d20Result + modifierValue}`;
-			} else {
-				// Non-5e systems: roll the full expression
-				rolledStr = `${rollDiceExpression(character, feature.roll)}`;
-			}
-			let type: LogType = 'roll';
-			if (d20Result === 20) type = 'critical-hit';
-			if (d20Result === 1) type = 'critical-miss';
+		return [...Object.values(rowToStatsToRender), lastRowToRender];
+	})(),
+);
 
-			logMessage(
-				`${character.name} rolled ${feature.name}: ${rolledStr}           ${feature.roll}`,
-				type
-			);
+function handleHealthUpdate(event: any) {
+	if (event.key === 'Enter') {
+		const value = event.target.value.trim();
+		if (!value) return;
+		let newDamage;
+		if (value.startsWith('+')) {
+			const heal = parseFloat(value.substring(1));
+			newDamage = damage - heal;
+		} else if (value.startsWith('-')) {
+			const damageAdd = parseFloat(value.substring(1));
+			newDamage = damage + damageAdd;
+		} else {
+			const currentHpInput = parseFloat(value);
+			newDamage = max_hp - currentHpInput;
 		}
+		updateCharacterHealth(character, newDamage);
+		event.target.value = '';
 	}
+}
 
-	function handleFeatureMouseOver(feature: Feature, type: string = 'feature') {
-		if (tooltip === undefined) return;
-		if (!['skill', 'feature', 'attack', 'item'].includes(type)) type = 'feature';
-		tooltip.show({
-			name: feature.name,
-			description: feature.description,
-			type: type as any,
-			chips: feature.chips
-		});
+function onClickFeature(feature: Feature, e: MouseEvent) {
+	e.preventDefault();
+	e.stopImmediatePropagation();
+	if (feature.roll_against !== '') {
+		// Attack
+		selectedAttack = { attacker: character, attack: feature };
+		tooltip?.setShaking(true);
+		return;
 	}
+	if (feature.roll) {
+		// Check if this is a 5e attack (starts with +)
+		const is5eAttack = feature.roll.startsWith('+');
+		let rolledStr = '';
+		let d20Result = 0;
+		let modifierValue = 0;
 
-	function handleMouseLeave() {
-		tooltip && tooltip.hide();
+		if (is5eAttack) {
+			// Roll d20 separately for 5e attacks
+			d20Result = Math.floor(Math.random() * 20) + 1;
+			// Remove the + and just pass the modifiers to the dice roller
+			const modifiers = feature.roll.substring(1);
+			modifierValue = rollDiceExpression(character, modifiers);
+			rolledStr = `${d20Result} + ${modifierValue} = ${d20Result + modifierValue}`;
+		} else {
+			// Non-5e systems: roll the full expression
+			rolledStr = `${rollDiceExpression(character, feature.roll)}`;
+		}
+		let type: LogType = 'roll';
+		if (d20Result === 20) type = 'critical-hit';
+		if (d20Result === 1) type = 'critical-miss';
+
+		logMessage(
+			`${character.name} rolled ${feature.name}: ${rolledStr}           ${feature.roll}`,
+			type,
+		);
 	}
+}
+
+function handleFeatureMouseOver(feature: Feature, type: string = 'feature') {
+	if (tooltip === undefined) return;
+	if (!['skill', 'feature', 'attack', 'item'].includes(type)) type = 'feature';
+	tooltip.show({
+		name: feature.name,
+		description: feature.description,
+		type: type as any,
+		chips: feature.chips,
+	});
+}
+
+function handleMouseLeave() {
+	tooltip && tooltip.hide();
+}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->

@@ -13,7 +13,7 @@ function rollStatRoll(character: Character, statName: string): number {
 function rollDiceExpression(
 	character: Character,
 	expression: string,
-	args?: { noDice?: boolean }
+	args?: { noDice?: boolean },
 ): number {
 	// Replace character stats with their floored values, including subfields
 	let processedExpression = expression;
@@ -38,11 +38,11 @@ function rollDiceExpression(
 
 		processedExpression = processedExpression.replace(
 			attackRef,
-			Math.floor(stat.attack).toString()
+			Math.floor(stat.attack).toString(),
 		);
 		processedExpression = processedExpression.replace(
 			defenseRef,
-			Math.floor(stat.defense).toString()
+			Math.floor(stat.defense).toString(),
 		);
 
 		// Handle base stat references
@@ -84,7 +84,7 @@ function rollDiceExpression(
 				// Keep all (standard dice roll)
 				return rolls.reduce((sum, roll) => sum + roll, 0).toString();
 			}
-		}
+		},
 	);
 
 	// Handle single die notation (dX)
@@ -108,7 +108,7 @@ function rollDiceExpression(
 	} catch (error) {
 		console.error(
 			`Failed to evaluate dice expression: ${expression} -> ${processedExpression}`,
-			error
+			error,
 		);
 		return NaN;
 	}
@@ -138,11 +138,11 @@ function rollCriticalDamage(character: Character, damageExpression: string): num
 
 		processedExpression = processedExpression.replace(
 			attackRef,
-			Math.floor(stat.attack).toString()
+			Math.floor(stat.attack).toString(),
 		);
 		processedExpression = processedExpression.replace(
 			defenseRef,
-			Math.floor(stat.defense).toString()
+			Math.floor(stat.defense).toString(),
 		);
 
 		// Handle base stat references
@@ -184,7 +184,7 @@ function rollCriticalDamage(character: Character, damageExpression: string): num
 
 			totalDiceRolls += diceTotal;
 			return '0'; // Replace with 0 so bonuses aren't doubled
-		}
+		},
 	);
 
 	// Handle single die notation (dX) - roll twice for crits
@@ -235,7 +235,7 @@ function parseDamageExpression(expression: string, attacker: Character): AttackR
 			/\d*d\d+/.test(part) ||
 			knownVars.includes(part) ||
 			knownVars.some(
-				(varName) => part.includes(`${varName}.attack`) || part.includes(`${varName}.defense`)
+				(varName) => part.includes(`${varName}.attack`) || part.includes(`${varName}.defense`),
 			)
 		) {
 			break;
@@ -269,7 +269,7 @@ function processAttack(
 	attacker: Character,
 	target: Character | undefined,
 	attack: Feature,
-	logMessage: Function
+	logMessage: Function,
 ): AttackResult {
 	let rollResult = 0;
 	let targetValue: number | undefined;
@@ -392,7 +392,7 @@ function processAttack(
 		// Roll critical damage on the dice expression only
 		hitDamageResult.damageDealt = rollCriticalDamage(
 			attacker,
-			attack.hit.replace(parsed.damageType, '').trim()
+			attack.hit.replace(parsed.damageType, '').trim(),
 		);
 		logType = 'critical-hit';
 	} else {
@@ -403,7 +403,7 @@ function processAttack(
 	if (attack.miss === 'half') {
 		missDamageResult = {
 			damageDealt: Math.floor(hitDamageResult.damageDealt / 2),
-			damageType: hitDamageResult.damageType
+			damageType: hitDamageResult.damageType,
 		};
 	} else {
 		missDamageResult = parseDamageExpression(attack.miss, attacker);

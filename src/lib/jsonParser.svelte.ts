@@ -316,7 +316,7 @@ class UnquotedJSONParser {
 				}
 			} else {
 				throw new Error(
-					`Expected ',' or '}' at position ${this.pos}, instead got "${this.peek()}", context ${this.input.substring(this.pos - 10, this.pos + 10)}`
+					`Expected ',' or '}' at position ${this.pos}, instead got "${this.peek()}", context ${this.input.substring(this.pos - 10, this.pos + 10)}`,
 				);
 			}
 		}
@@ -373,7 +373,7 @@ class UnquotedJSONParser {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : 'Unknown parsing error'
+				error: error instanceof Error ? error.message : 'Unknown parsing error',
 			};
 		}
 	}
